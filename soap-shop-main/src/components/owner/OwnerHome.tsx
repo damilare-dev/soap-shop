@@ -23,22 +23,20 @@ export default function OwnerHome({ data }: { data: StateData }) {
   const mUnits = mSales.reduce((s, t) => s + t.qty, 0);
 
   const totalStock = products.reduce((s, p) => s + p.stock, 0);
-  const lowStock = products.filter(p => p.stock < 100);
-  const critStock = products.filter(p => p.stock < 30);
+  const lowStock = products.filter(p => p.stock < 5);
 
-  const [dismissedCrit, setDismissedCrit] = useState(false);
-  const [dismissedShort, setDismissedShort] = useState(false);
   const [dismissedLow, setDismissedLow] = useState(false);
+  const [dismissedShort, setDismissedShort] = useState(false);
 
   return (
     <>
       <div className="section-title">Dashboard</div>
 
-      {critStock.length > 0 && !dismissedCrit && (
+      {lowStock.length > 0 && !dismissedLow && (
         <Alert
-          message={`Critical: ${critStock.length} product${critStock.length === 1 ? "" : "s"} low on stock`}
-          type="red"
-          onDismiss={() => setDismissedCrit(true)}
+          message={`Low stock: ${lowStock.map(p => p.name).join(', ')}`}
+          type="gold"
+          onDismiss={() => setDismissedLow(true)}
         />
       )}
       {tDisc < -500 && !dismissedShort && (
@@ -46,13 +44,6 @@ export default function OwnerHome({ data }: { data: StateData }) {
           message={`Cash shortage today: ${fmt(Math.abs(tDisc))}`}
           type="red"
           onDismiss={() => setDismissedShort(true)}
-        />
-      )}
-      {lowStock.length > 0 && critStock.length === 0 && !dismissedLow && (
-        <Alert
-          message={`${lowStock.length} product${lowStock.length === 1 ? "" : "s"} running low`}
-          type="gold"
-          onDismiss={() => setDismissedLow(true)}
         />
       )}
 
@@ -103,14 +94,13 @@ export default function OwnerHome({ data }: { data: StateData }) {
         <div className="card-title">📦 Stock Levels</div>
         {products.map(p => {
           const pct = Math.min(100, (p.stock / (p.expectedQty || 500)) * 100);
-          const color = p.stock < 30 ? "var(--red)" : p.stock < 100 ? "var(--gold)" : "var(--green3)";
           return (
             <div key={p.id} style={{ marginBottom: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 6 }}>
                 <span style={{ fontWeight: 600 }}>{p.name}</span>
-                <span style={{ fontFamily: "var(--font-m)", color, fontWeight: 600 }}>{p.stock.toLocaleString()}</span>
+                <span style={{ fontFamily: "var(--font-m)", color: "var(--text)", fontWeight: 600 }}>{p.stock.toLocaleString()}</span>
               </div>
-              <div className="bar-bg"><div className="bar-fill" style={{ width: pct + "%", background: color }}></div></div>
+              <div className="bar-bg"><div className="bar-fill" style={{ width: pct + "%", background: "var(--green3)" }}></div></div>
             </div>
           );
         })}
