@@ -188,6 +188,38 @@ export function useAppData() {
       if (r.status === 'rejected') console.warn('Supabase sync partial failure:', r.reason);
     });
   }, []); // Empty deps — dataRef.current always has latest data, no stale closure
+useEffect(() => {
+    if (!supabase) return;
 
+    const channel = supabase
+      .channel('db-changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'products' },
+        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'sales' },
+        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'deliveries' },
+        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'reps' },
+        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'audit_log' },
+        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'app_config' },
+        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [loadFromSupabase]);
   return { data, save, loading };
 }
