@@ -230,12 +230,20 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
               <input
                 className="finput"
                 type="number"
-                style={{ width: 100, padding: "6px 10px", fontSize: 13 }}
+                style={{ width: 90, padding: "6px 10px", fontSize: 13 }}
                 defaultValue={p.sellPrice}
-                onBlur={e => updateSellPrice(p.id, e.target.value)}
+                id={`price-${p.id}`}
                 placeholder="Sell price"
                 title="Sell Price"
               />
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  const input = document.getElementById(`price-${p.id}`) as HTMLInputElement;
+                  updateSellPrice(p.id, input?.value ?? '');
+                }}
+                title="Save price"
+              >✓</button>
               <button className="btn btn-red btn-sm" onClick={() => delProduct(p.id)} title="Delete product">✕</button>
             </div>
           </div>
