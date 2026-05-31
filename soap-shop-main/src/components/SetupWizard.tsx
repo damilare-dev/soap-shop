@@ -102,7 +102,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     <div className="fullscreen" style={{ gap: 0, background: "var(--bg)", padding: "20px" }}>
       <div style={{ textAlign: "center", marginBottom: 32 }}>
         <div style={{ fontSize: 56, marginBottom: 12 }}>📦</div>
-        <div style={{ fontFamily: "var(--font-h)", fontSize: 28, fontWeight: 700, color: "var(--green)" }}>SoapStock Setup</div>
+        <div style={{ fontFamily: "var(--font-h)", fontSize: 28, fontWeight: 700, color: "var(--green)" }}>Soap Stock Audit Setup</div>
         <div style={{ color: "var(--muted)", marginTop: 6, fontSize: 14 }}>Let's get your business ready</div>
       </div>
 

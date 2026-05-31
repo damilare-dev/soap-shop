@@ -177,8 +177,8 @@ export default function App() {
       <>
         <style>{STYLE}</style>
         <div className="fullscreen" style={{ color: "var(--green)", fontFamily: "var(--font-b)" }}>
-          <div style={{ fontSize: 40 }}>??</div>
-          <div style={{ fontFamily: "var(--font-h)", fontSize: 18, marginTop: 12 }}>Loading SoapStock�</div>
+          <div style={{ fontSize: 40 }}>⌛</div>
+          <div style={{ fontFamily: "var(--font-h)", fontSize: 18, marginTop: 12 }}>Loading Soap Stock Audit</div>
         </div>
       </>
     );

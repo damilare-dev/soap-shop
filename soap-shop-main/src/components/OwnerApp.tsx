@@ -110,7 +110,7 @@ export default function OwnerApp({ data, save, onLogout, addAudit }: OwnerAppPro
     <><style>{STYLE}</style>
     <div className="page">
       <div className="topbar">
-        <div><div className="topbar-logo">📦 SoapStock — Owner</div></div>
+        <div><div className="topbar-logo">📦 Soap Stock Audit — Owner</div></div>
         <button className="topbar-btn" onClick={onLogout}>Logout</button>
       </div>
 

@@ -26,7 +26,7 @@ export default function Landing({ onOwner, onRep }: LandingProps) {
     <div className="fullscreen" style={{ gap: 28 }}>
       <div style={{ textAlign: "center" }}>
         <div style={{ fontSize: 64, marginBottom: 12 }}>📦</div>
-        <div style={{ fontFamily: "var(--font-h)", fontSize: 32, fontWeight: 700, color: "var(--green)" }}>SoapStock</div>
+        <div style={{ fontFamily: "var(--font-h)", fontSize: 32, fontWeight: 700, color: "var(--green)" }}>Soap Stock Audit</div>
         <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 6 }}>Who are you today?</div>
       </div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center", maxWidth: 340 }}>
