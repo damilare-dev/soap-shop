@@ -28,7 +28,6 @@ const DEFAULT_STATE: StateData = {
 export function useAppData() {
   const [data, setData] = useState<StateData>(DEFAULT_STATE);
   const [loading, setLoading] = useState(true);
-  // Ref tracks the current data so save() always diffs against latest — fixes stale closure bug
   const dataRef = useRef<StateData>(DEFAULT_STATE);
 
   const loadFromSupabase = useCallback(async (): Promise<StateData | null> => {
@@ -93,7 +92,6 @@ export function useAppData() {
     })();
   }, [loadFromSupabase]);
 
-  // save uses dataRef.current for diffing — never stale regardless of when it's called
   const save = useCallback(async (next: StateData) => {
     setData(next);
     saveLocal(next);
@@ -117,6 +115,12 @@ export function useAppData() {
       );
     }
 
+    // FIX 1: Delete removed reps from Supabase
+    const nextRepIds = new Set(next.reps.map(r => r.id));
+    const deletedRepIds = prev.reps.filter(r => !nextRepIds.has(r.id)).map(r => r.id);
+    if (deletedRepIds.length) {
+      promises.push(supabase.from('reps').delete().in('id', deletedRepIds));
+    }
     if (next.reps.length) {
       promises.push(
         supabase.from('reps').upsert(
@@ -125,6 +129,12 @@ export function useAppData() {
       );
     }
 
+    // FIX 2: Delete removed products from Supabase
+    const nextProductIds = new Set(next.products.map(p => p.id));
+    const deletedProductIds = prev.products.filter(p => !nextProductIds.has(p.id)).map(p => p.id);
+    if (deletedProductIds.length) {
+      promises.push(supabase.from('products').delete().in('id', deletedProductIds));
+    }
     if (next.products.length) {
       promises.push(
         supabase.from('products').upsert(
@@ -187,39 +197,35 @@ export function useAppData() {
     results.forEach(r => {
       if (r.status === 'rejected') console.warn('Supabase sync partial failure:', r.reason);
     });
-  }, []); // Empty deps — dataRef.current always has latest data, no stale closure
-useEffect(() => {
+  }, []);
+
+  useEffect(() => {
     if (!supabase) return;
 
     const channel = supabase
       .channel('db-changes')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'products' },
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' },
         () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
       )
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'sales' },
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' },
         () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
       )
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'deliveries' },
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' },
         () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
       )
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'reps' },
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reps' },
         () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
       )
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'audit_log' },
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_log' },
         () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
       )
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'app_config' },
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' },
         () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
       )
       .subscribe();
 
     return () => supabase.removeChannel(channel);
   }, [loadFromSupabase]);
+
   return { data, save, loading };
 }

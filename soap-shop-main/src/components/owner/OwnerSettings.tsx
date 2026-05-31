@@ -32,14 +32,14 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
   const [prod, setProd] = useState({ name: "", costPrice: "", sellPrice: "", expectedQty: "", schedule: "monthly" });
   const [settingsMsg, setSettingsMsg] = useState<string>("");
   const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
+  // FIX 3: Track which rep is being confirmed for deletion
+  const [removeRepConfirmId, setRemoveRepConfirmId] = useState<string | null>(null);
 
   const sp = (k: keyof typeof prod, v: string) => setProd(f => ({ ...f, [k]: v }));
 
-  // Hash the PIN before storing — fixes plaintext PIN security issue
   const changePin = async () => {
     if (!/^\d{4}$/.test(newPin)) return setPinMsg("PIN must be exactly 4 digits.");
     if (newPin !== confirmPin) return setPinMsg("PINs don't match.");
-
     const hashed = await hashPin(newPin);
     let nd: any = { ...data, ownerPin: hashed };
     nd = addAudit(nd, "PIN_CHANGE", "Owner PIN changed", "OWNER");
@@ -53,7 +53,10 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
     if (!repName.trim()) return setRepErr("Enter rep name.");
     if (!/^\d{4}$/.test(repPin)) return setRepErr("PIN must be 4 digits.");
     if (repPin !== repPin2) return setRepErr("PINs don't match.");
-
+    // FIX 4: Prevent duplicate rep names
+    if (data.reps.some(r => r.name.toLowerCase() === repName.trim().toLowerCase())) {
+      return setRepErr("A rep with that name already exists.");
+    }
     const hashedPin = await hashPin(repPin);
     const newRep = { id: uid(), name: repName.trim(), pin: hashedPin };
     let nd = { ...data, reps: [...data.reps, newRep] };
@@ -64,18 +67,24 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
     setTimeout(() => setSettingsMsg(""), 2000);
   };
 
+  // FIX 3: Two-step confirmation before removing rep
   const removeRep = (id: string) => {
     const rep = data.reps.find(r => r.id === id);
     const newReps = data.reps.filter(r => r.id !== id);
     let nd = { ...data, reps: newReps };
     nd = addAudit(nd, "REP_REMOVED", `Rep removed: ${rep?.name}`, "OWNER");
     save(nd);
+    setRemoveRepConfirmId(null);
     setSettingsMsg("✓ Rep removed");
     setTimeout(() => setSettingsMsg(""), 2000);
   };
 
   const addProduct = () => {
-    if (!prod.name || !prod.costPrice || !prod.sellPrice) return setSettingsMsg("⚠ Fill name, cost, sell price.");
+    if (!prod.name.trim()) return setSettingsMsg("⚠ Fill product name.");
+    if (!prod.costPrice || !prod.sellPrice) return setSettingsMsg("⚠ Fill name, cost, sell price.");
+    if (+prod.costPrice <= 0 || +prod.sellPrice <= 0) return setSettingsMsg("⚠ Prices must be greater than 0.");
+    // FIX 5: Warn if sell price is lower than cost price
+    if (+prod.sellPrice < +prod.costPrice) return setSettingsMsg("⚠ Sell price is lower than cost price — check values.");
 
     const newProd = { id: uid(), ...prod, costPrice: +prod.costPrice, sellPrice: +prod.sellPrice, expectedQty: +prod.expectedQty || 500, stock: 0 };
     let nd = { ...data, products: [...data.products, newProd] };
@@ -86,7 +95,6 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
     setTimeout(() => setSettingsMsg(""), 2000);
   };
 
-  // Guard: block deletion if product has existing active sales
   const delProduct = (id: string) => {
     const p = data.products.find(x => x.id === id);
     const hasSales = data.sales.some(s => s.productId === id && !s.voided);
@@ -104,6 +112,8 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
   };
 
   const updateSellPrice = (id: string, price: string) => {
+    // FIX 6: Don't save invalid sell prices
+    if (!price || isNaN(+price) || +price <= 0) return;
     save({ ...data, products: data.products.map(p => p.id === id ? { ...p, sellPrice: +price } : p) });
   };
 
@@ -114,7 +124,6 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
     setTimeout(() => setSettingsMsg(""), 3000);
   };
 
-  // Validate and sanitize imported backup — never replace ownerPin from file
   const importData = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -131,7 +140,7 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
       ) {
         throw new Error("Invalid backup file");
       }
-      // Keep the current owner PIN — never allow a backup file to override access credentials
+      // Keep current owner PIN — never allow a backup to override credentials
       const safeImport = { ...imported, ownerPin: data.ownerPin };
       save(safeImport);
       setSettingsMsg("✓ Data imported successfully");
@@ -163,10 +172,22 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
 
       <div className="card">
         <div className="card-title">👥 Sales Reps</div>
+        {data.reps.length === 0 && <div className="empty" style={{ padding: "12px 0" }}>No reps added yet.</div>}
         {data.reps.map(r => (
-          <div key={r.id} className="row" style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-            <span style={{ fontWeight: 600 }}>👤 {r.name}</span>
-            <button className="btn btn-red btn-sm" onClick={() => removeRep(r.id)}>Remove</button>
+          <div key={r.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
+            <div className="row">
+              <span style={{ fontWeight: 600 }}>👤 {r.name}</span>
+              {/* FIX 3: Two-step confirm before removing */}
+              {removeRepConfirmId === r.id ? (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: "var(--red)", fontWeight: 600 }}>Remove?</span>
+                  <button className="btn btn-red btn-sm" onClick={() => removeRep(r.id)}>Yes</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setRemoveRepConfirmId(null)}>No</button>
+                </div>
+              ) : (
+                <button className="btn btn-red btn-sm" onClick={() => setRemoveRepConfirmId(r.id)}>Remove</button>
+              )}
+            </div>
           </div>
         ))}
 
@@ -200,7 +221,15 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
               <div style={{ fontSize: 12, color: "var(--muted)" }}>Cost: {fmt(p.costPrice)} · Stock: {p.stock}</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input className="finput" type="number" style={{ width: 100, padding: "6px 10px", fontSize: 13 }} value={p.sellPrice} onChange={e => updateSellPrice(p.id, e.target.value)} placeholder="Sell price" title="Sell Price" />
+              <input
+                className="finput"
+                type="number"
+                style={{ width: 100, padding: "6px 10px", fontSize: 13 }}
+                defaultValue={p.sellPrice}
+                onBlur={e => updateSellPrice(p.id, e.target.value)}
+                placeholder="Sell price"
+                title="Sell Price"
+              />
               <button className="btn btn-red btn-sm" onClick={() => delProduct(p.id)} title="Delete product">✕</button>
             </div>
           </div>
