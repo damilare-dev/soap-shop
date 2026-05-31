@@ -196,9 +196,9 @@ export default function App() {
         <style>{STYLE}</style>
         {offlineBanner}
         <SetupWizard onComplete={(pin, reps) => {
-          // Do not record a SYSTEM 'SETUP' audit entry here —
-          // event counting should start from explicit user actions (OWNER/REPs)
-          save({ ...data, ownerPin: pin, reps });
+          // Initialize a clean app state on first setup: keep owner PIN and reps,
+          // but clear any pre-existing sales/deliveries/audit entries so counts start at zero.
+          save({ ownerPin: pin, maxDiscountPct: data.maxDiscountPct ?? 15, reps, products: data.products ?? [], deliveries: [], sales: [], auditLog: [] });
         }} />
       </>
     );
