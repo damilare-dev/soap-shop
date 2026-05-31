@@ -92,6 +92,9 @@ export function useAppData() {
     })();
   }, [loadFromSupabase]);
 
+  // Track when we're mid-save so realtime doesn't overwrite our own changes
+  const isSaving = useRef(false);
+
   const save = useCallback(async (next: StateData) => {
     setData(next);
     saveLocal(next);
@@ -101,42 +104,46 @@ export function useAppData() {
 
     if (!supabase) return;
 
+    isSaving.current = true;
+
     const promises: any[] = [];
 
+    // FIX: Run deletes FIRST, then upserts — prevents race where upsert writes back a deleted row
+    const deletePromises: any[] = [];
+    const upsertPromises: any[] = [];
+
     if (next.ownerPin !== prev.ownerPin) {
-      promises.push(
+      upsertPromises.push(
         supabase.from('app_config').upsert({ key: 'owner_pin', value: next.ownerPin })
       );
     }
 
     if (next.maxDiscountPct !== prev.maxDiscountPct) {
-      promises.push(
+      upsertPromises.push(
         supabase.from('app_config').upsert({ key: 'max_discount_pct', value: String(next.maxDiscountPct) })
       );
     }
 
-    // FIX 1: Delete removed reps from Supabase
     const nextRepIds = new Set(next.reps.map(r => r.id));
     const deletedRepIds = prev.reps.filter(r => !nextRepIds.has(r.id)).map(r => r.id);
     if (deletedRepIds.length) {
-      promises.push(supabase.from('reps').delete().in('id', deletedRepIds));
+      deletePromises.push(supabase.from('reps').delete().in('id', deletedRepIds));
     }
     if (next.reps.length) {
-      promises.push(
+      upsertPromises.push(
         supabase.from('reps').upsert(
           next.reps.map(r => ({ id: r.id, name: r.name, pin_hash: r.pin }))
         )
       );
     }
 
-    // FIX 2: Delete removed products from Supabase
     const nextProductIds = new Set(next.products.map(p => p.id));
     const deletedProductIds = prev.products.filter(p => !nextProductIds.has(p.id)).map(p => p.id);
     if (deletedProductIds.length) {
-      promises.push(supabase.from('products').delete().in('id', deletedProductIds));
+      deletePromises.push(supabase.from('products').delete().in('id', deletedProductIds));
     }
     if (next.products.length) {
-      promises.push(
+      upsertPromises.push(
         supabase.from('products').upsert(
           next.products.map(p => ({
             id: p.id, name: p.name, schedule: p.schedule,
@@ -150,7 +157,7 @@ export function useAppData() {
     const existingDeliveryIds = new Set(prev.deliveries.map(d => d.id));
     const newDeliveries = next.deliveries.filter(d => !existingDeliveryIds.has(d.id));
     if (newDeliveries.length) {
-      promises.push(
+      upsertPromises.push(
         supabase.from('deliveries').upsert(
           newDeliveries.map(d => ({
             id: d.id, product_id: d.productId, qty: d.qty,
@@ -166,7 +173,7 @@ export function useAppData() {
       return !old || old.edited !== s.edited || old.voided !== s.voided || old.cashCollected !== s.cashCollected;
     });
     if (changedSales.length) {
-      promises.push(
+      upsertPromises.push(
         supabase.from('sales').upsert(
           changedSales.map(s => ({
             id: s.id, product_id: s.productId, product_name: s.productName,
@@ -186,42 +193,41 @@ export function useAppData() {
     const existingAuditIds = new Set(prev.auditLog.map(a => a.id));
     const newAudit = next.auditLog.filter(a => !existingAuditIds.has(a.id));
     if (newAudit.length) {
-      promises.push(
+      upsertPromises.push(
         supabase.from('audit_log').insert(
           newAudit.map(a => ({ id: a.id, ts: a.ts, action: a.action, detail: a.detail, actor: a.actor }))
         )
       );
     }
 
-    const results = await Promise.allSettled(promises);
+    // Deletes first, then upserts — order matters to prevent bounce-back
+    await Promise.allSettled(deletePromises);
+    const results = await Promise.allSettled(upsertPromises);
     results.forEach(r => {
       if (r.status === 'rejected') console.warn('Supabase sync partial failure:', r.reason);
     });
+
+    // Release save lock after a short delay so realtime events during save are ignored
+    setTimeout(() => { isSaving.current = false; }, 1000);
   }, []);
 
   useEffect(() => {
     if (!supabase) return;
 
+    const reload = () => {
+      // Don't overwrite state with Supabase data while we're mid-save
+      if (isSaving.current) return;
+      loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }});
+    };
+
     const channel = supabase
       .channel('db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' },
-        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' },
-        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' },
-        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reps' },
-        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_log' },
-        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' },
-        () => { loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }}) }
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, reload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, reload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' }, reload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reps' }, reload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_log' }, reload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' }, reload)
       .subscribe();
 
     return () => supabase.removeChannel(channel);
