@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { today, fmt } from '../../lib/utils';
 import { StateData } from '../../types';
+import Alert from '../Alert';
 
 export default function OwnerHome({ data }: { data: StateData }) {
   const { products, sales } = data;
@@ -24,13 +26,35 @@ export default function OwnerHome({ data }: { data: StateData }) {
   const lowStock = products.filter(p => p.stock < 100);
   const critStock = products.filter(p => p.stock < 30);
 
+  const [dismissedCrit, setDismissedCrit] = useState(false);
+  const [dismissedShort, setDismissedShort] = useState(false);
+  const [dismissedLow, setDismissedLow] = useState(false);
+
   return (
     <>
       <div className="section-title">Dashboard</div>
 
-      {critStock.length > 0 && <div className="alert alert-red">Critical: {critStock.length} product{critStock.length === 1 ? "" : "s"} low on stock</div>}
-      {tDisc < -500 && <div className="alert alert-red">Cash shortage today: {fmt(Math.abs(tDisc))}</div>}
-      {lowStock.length > 0 && critStock.length === 0 && <div className="alert alert-gold">{lowStock.length} product{lowStock.length === 1 ? "" : "s"} running low</div>}
+      {critStock.length > 0 && !dismissedCrit && (
+        <Alert
+          message={`Critical: ${critStock.length} product${critStock.length === 1 ? "" : "s"} low on stock`}
+          type="red"
+          onDismiss={() => setDismissedCrit(true)}
+        />
+      )}
+      {tDisc < -500 && !dismissedShort && (
+        <Alert
+          message={`Cash shortage today: ${fmt(Math.abs(tDisc))}`}
+          type="red"
+          onDismiss={() => setDismissedShort(true)}
+        />
+      )}
+      {lowStock.length > 0 && critStock.length === 0 && !dismissedLow && (
+        <Alert
+          message={`${lowStock.length} product${lowStock.length === 1 ? "" : "s"} running low`}
+          type="gold"
+          onDismiss={() => setDismissedLow(true)}
+        />
+      )}
 
       <div className="stat-grid">
         <div className="stat-card">

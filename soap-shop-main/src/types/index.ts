@@ -62,6 +62,7 @@ export type StateData = {
   deliveries: Delivery[];
   sales: Sale[];
   auditLog: AuditEntry[];
+  maxDiscountPct: number; // NEW: owner-configurable negotiation cap
 };
 
 export type AlertProps = {

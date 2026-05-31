@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, cloudEnabled } from '../lib/supabase';
 import { StateData } from '../types';
 
@@ -17,6 +17,7 @@ function saveLocal(data: StateData) {
 
 const DEFAULT_STATE: StateData = {
   ownerPin: null,
+  maxDiscountPct: 15,
   reps: [],
   products: [],
   deliveries: [],
@@ -27,6 +28,8 @@ const DEFAULT_STATE: StateData = {
 export function useAppData() {
   const [data, setData] = useState<StateData>(DEFAULT_STATE);
   const [loading, setLoading] = useState(true);
+  // Ref tracks the current data so save() always diffs against latest — fixes stale closure bug
+  const dataRef = useRef<StateData>(DEFAULT_STATE);
 
   const loadFromSupabase = useCallback(async (): Promise<StateData | null> => {
     if (!supabase) return null;
@@ -41,9 +44,11 @@ export function useAppData() {
       ]);
 
       const ownerPinRow = config.data?.find((r: any) => r.key === 'owner_pin');
+      const maxDiscRow = config.data?.find((r: any) => r.key === 'max_discount_pct');
 
       return {
         ownerPin: ownerPinRow?.value ?? null,
+        maxDiscountPct: maxDiscRow ? Number(maxDiscRow.value) : 15,
         reps: (reps.data ?? []).map((r: any) => ({
           id: r.id, name: r.name, pin: r.pin_hash,
         })),
@@ -83,25 +88,35 @@ export function useAppData() {
       const local = loadLocal();
       const resolved = remote ?? local ?? DEFAULT_STATE;
       setData(resolved);
+      dataRef.current = resolved;
       setLoading(false);
     })();
   }, [loadFromSupabase]);
 
+  // save uses dataRef.current for diffing — never stale regardless of when it's called
   const save = useCallback(async (next: StateData) => {
     setData(next);
     saveLocal(next);
+
+    const prev = dataRef.current;
+    dataRef.current = next;
+
     if (!supabase) return;
 
-    // Persist each entity type to its own table
     const promises: any[] = [];
 
-    if (next.ownerPin !== data.ownerPin) {
+    if (next.ownerPin !== prev.ownerPin) {
       promises.push(
         supabase.from('app_config').upsert({ key: 'owner_pin', value: next.ownerPin })
       );
     }
 
-    // Upsert reps
+    if (next.maxDiscountPct !== prev.maxDiscountPct) {
+      promises.push(
+        supabase.from('app_config').upsert({ key: 'max_discount_pct', value: String(next.maxDiscountPct) })
+      );
+    }
+
     if (next.reps.length) {
       promises.push(
         supabase.from('reps').upsert(
@@ -110,7 +125,6 @@ export function useAppData() {
       );
     }
 
-    // Upsert products
     if (next.products.length) {
       promises.push(
         supabase.from('products').upsert(
@@ -123,8 +137,7 @@ export function useAppData() {
       );
     }
 
-    // Upsert new deliveries
-    const existingDeliveryIds = new Set(data.deliveries.map(d => d.id));
+    const existingDeliveryIds = new Set(prev.deliveries.map(d => d.id));
     const newDeliveries = next.deliveries.filter(d => !existingDeliveryIds.has(d.id));
     if (newDeliveries.length) {
       promises.push(
@@ -137,8 +150,7 @@ export function useAppData() {
       );
     }
 
-    // Upsert new or changed sales
-    const existingSaleMap = new Map(data.sales.map(s => [s.id, s]));
+    const existingSaleMap = new Map(prev.sales.map(s => [s.id, s]));
     const changedSales = next.sales.filter(s => {
       const old = existingSaleMap.get(s.id);
       return !old || old.edited !== s.edited || old.voided !== s.voided || old.cashCollected !== s.cashCollected;
@@ -161,8 +173,7 @@ export function useAppData() {
       );
     }
 
-    // Upsert new audit entries
-    const existingAuditIds = new Set(data.auditLog.map(a => a.id));
+    const existingAuditIds = new Set(prev.auditLog.map(a => a.id));
     const newAudit = next.auditLog.filter(a => !existingAuditIds.has(a.id));
     if (newAudit.length) {
       promises.push(
@@ -172,8 +183,11 @@ export function useAppData() {
       );
     }
 
-    await Promise.allSettled(promises);
-  }, [data]);
+    const results = await Promise.allSettled(promises);
+    results.forEach(r => {
+      if (r.status === 'rejected') console.warn('Supabase sync partial failure:', r.reason);
+    });
+  }, []); // Empty deps — dataRef.current always has latest data, no stale closure
 
   return { data, save, loading };
 }

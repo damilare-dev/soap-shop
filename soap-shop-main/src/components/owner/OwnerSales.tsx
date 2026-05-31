@@ -1,5 +1,5 @@
 import { OwnerSalesProps } from '../../types';
-import { today, fmt, nowTime } from '../../lib/utils';
+import { today, fmt } from '../../lib/utils';
 import Alert from '../Alert';
 import { useState } from 'react';
 
@@ -7,6 +7,7 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
   const [filter, setFilter] = useState<"today" | "week" | "month">("today");
   const [showVoided, setShowVoided] = useState<boolean>(false);
   const [voidAlert, setVoidAlert] = useState<string>("");
+  const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
 
@@ -35,11 +36,13 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
     if (!s || s.voided) return;
 
     const newProducts = data.products.map(p => p.id === s.productId ? { ...p, stock: p.stock + s.qty } : p);
-    const newSales = data.sales.map(x => x.id === id ? { ...x, voided: true, voidedBy: "OWNER", voidedAt: nowTime() } : x);
+    // Fix: store full ISO timestamp instead of time-only string
+    const newSales = data.sales.map(x => x.id === id ? { ...x, voided: true, voidedBy: "OWNER", voidedAt: new Date().toISOString() } : x);
 
     let nd = { ...data, sales: newSales, products: newProducts };
     nd = addAudit(nd, "VOID", `Sale voided: ${s.qty} × ${s.productName}`, "OWNER");
     save(nd);
+    setVoidConfirmId(null);
     setVoidAlert("✓ Sale voided and inventory restored.");
     setTimeout(() => setVoidAlert(""), 3000);
   };
@@ -89,6 +92,7 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
         {activeFiltered.length === 0 && <div className="empty">No sales in this period.</div>}
         {paginatedSales.map(s => {
           const disc = s.cashCollected - s.expectedCash;
+          const isConfirmingVoid = voidConfirmId === s.id;
           return (
             <div key={s.id} style={{ padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -96,8 +100,9 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
                   <div style={{ fontWeight: 600, fontSize: 14 }}>
                     {s.productName} · {s.qty} boxes
                     {s.edited && <span className="badge badge-gold">Edited</span>}
+                    {s.negotiated && !s.edited && <span className="badge badge-blue">Negotiated</span>}
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0" }}>{s.repName} · {s.date}</div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0" }}>{s.repName} · {s.date} · {s.time}</div>
                   <div style={{ fontSize: 13 }}>
                     <span style={{ color: "var(--muted)" }}>Expected: </span>
                     <strong style={{ fontFamily: "var(--font-m)", color: "var(--green2)" }}>{fmt(s.expectedCash)}</strong>
@@ -113,16 +118,57 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
                     </div>
                   )}
                 </div>
-                <button className="btn btn-red btn-sm" onClick={() => voidSale(s.id)} title="Void this sale">✕</button>
+                {/* Inline void confirmation — no misclick risk */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+                  {isConfirmingVoid ? (
+                    <>
+                      <div style={{ fontSize: 11, color: "var(--red)", fontWeight: 600, textAlign: "right" }}>Void this?</div>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button className="btn btn-red btn-sm" onClick={() => voidSale(s.id)}>Yes</button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setVoidConfirmId(null)}>No</button>
+                      </div>
+                    </>
+                  ) : (
+                    <button className="btn btn-red btn-sm" onClick={() => setVoidConfirmId(s.id)} title="Void this sale">✕</button>
+                  )}
+                </div>
               </div>
             </div>
           );
         })}
+
+        {/* Fully responsive pagination */}
         {totalPages > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, fontSize: 13 }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>← Prev</button>
-            <span style={{ color: 'var(--muted)' }}>Page {page + 1} of {totalPages}</span>
-            <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}>Next →</button>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: 14,
+            gap: 8,
+            flexWrap: 'wrap',
+          }}>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              style={{ flex: '0 0 auto' }}
+            >← Prev</button>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center', flex: 1 }}>
+              {Array.from({ length: totalPages }, (_, i) => (
+                <button
+                  key={i}
+                  className={`btn btn-sm ${i === page ? 'btn-green' : 'btn-ghost'}`}
+                  onClick={() => setPage(i)}
+                  style={{ minWidth: 32, padding: '6px 10px' }}
+                >{i + 1}</button>
+              ))}
+            </div>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={page === totalPages - 1}
+              style={{ flex: '0 0 auto' }}
+            >Next →</button>
           </div>
         )}
       </div>
@@ -135,7 +181,9 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
           {showVoided && voidedFiltered.map(s => (
             <div key={s.id} className="tag-deleted" style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
               <div>{s.productName} · {s.qty} boxes · {s.repName}</div>
-              <div style={{ fontSize: 11, color: "var(--muted)" }}>Voided at {s.voidedAt}</div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                Voided {s.voidedAt ? new Date(s.voidedAt).toLocaleString("en", { dateStyle: "medium", timeStyle: "short" }) : ""}
+              </div>
             </div>
           ))}
         </div>

@@ -94,9 +94,11 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
   const [negotiate, setNegotiate] = useState(false);
   const [bargainPrice, setBargainPrice] = useState('');
   const [bargainReason, setBargainReason] = useState('');
+  const [lowCashNote, setLowCashNote] = useState('');
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
 
+  const maxDiscount = data.maxDiscountPct ?? 15;
   const activeSales = data.sales.filter(s => !s.voided);
   const todaySales = activeSales.filter(s => s.date === today() && s.repId === rep.id);
   const availableProducts = data.products.filter(p => p.stock > 0);
@@ -106,6 +108,7 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
     setNegotiate(false);
     setBargainPrice('');
     setBargainReason('');
+    setLowCashNote('');
   };
 
   const handleQty = (v: string) => {
@@ -121,8 +124,31 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
     if (+qty > selected.stock) return setEditAlert(`Only ${selected.stock} boxes available.`);
     if (!cash || isNaN(+cash)) return setEditAlert("Please enter the cash collected.");
 
-    const q = +qty;
+    // FIX: cash cannot be negative
+    if (+cash < 0) return setEditAlert("Cash collected cannot be negative.");
+
     const finalPrice = negotiate && bargainPrice ? +bargainPrice : selected.sellPrice;
+
+    // FIX: negotiation discount cap — block if below owner's allowed max discount
+    if (negotiate && bargainPrice) {
+      const discountPct = ((selected.sellPrice - +bargainPrice) / selected.sellPrice) * 100;
+      if (discountPct > maxDiscount) {
+        return setEditAlert(`Discount of ${discountPct.toFixed(1)}% exceeds the allowed limit of ${maxDiscount}%. Contact the owner.`);
+      }
+    }
+
+    const expectedAmt = +qty * finalPrice;
+
+    // FIX: if cash is less than 50% of expected, require a note
+    if (+cash < expectedAmt * 0.5) {
+      if (!lowCashNote.trim()) {
+        return setEditAlert(`Cash is less than 50% of expected (${fmt(expectedAmt)}). Please enter a reason below.`);
+      }
+    }
+
+    const q = +qty;
+    const fullNote = lowCashNote.trim() ? `${note ? note + ' | ' : ''}LOW CASH REASON: ${lowCashNote.trim()}` : note;
+
     const sale: Sale = {
       id: uid(),
       productId: selected.id, productName: selected.name,
@@ -133,7 +159,7 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
       expectedCash: q * finalPrice,
       cashCollected: +cash,
       discrepancy: +cash - q * finalPrice,
-      note, date: today(), time: nowTime(),
+      note: fullNote, date: today(), time: nowTime(),
       voided: false, edited: false,
       negotiated: negotiate && Boolean(bargainPrice),
       negotiatedPrice: negotiate && bargainPrice ? +bargainPrice : undefined,
@@ -145,16 +171,19 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
     );
 
     let nd = { ...data, sales: [...data.sales, sale], products: newProducts };
-    nd = addAudit(nd, "SALE", `${rep.name} sold ${q} × ${selected.name} — ${fmt(+cash)}`, rep.name);
+    nd = addAudit(nd, "SALE", `${rep.name} sold ${q} × ${selected.name} — collected ${fmt(+cash)} (expected ${fmt(q * finalPrice)})`, rep.name);
     save(nd);
     setReceipt(sale);
-    setSelected(null); setQty(""); setCash(""); setNote(""); setEditAlert("");
+    setSelected(null); setQty(""); setCash(""); setNote(""); setEditAlert(""); setLowCashNote("");
     setNegotiate(false); setBargainPrice(''); setBargainReason('');
   };
 
   const editSale = (saleId: string, newQty: string, newCash: string) => {
     if (!Number.isInteger(+newQty) || +newQty <= 0) return setEditAlert("Invalid quantity.");
     if (isNaN(+newCash)) return setEditAlert("Invalid cash amount.");
+
+    // FIX: cash cannot be negative in edits either
+    if (+newCash < 0) return setEditAlert("Cash collected cannot be negative.");
 
     const sale = data.sales.find(s => s.id === saleId);
     if (!sale) return setEditAlert("Sale not found.");
@@ -174,8 +203,12 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
       s.id === saleId ? { ...s, qty: +newQty, expectedCash: +newQty * s.pricePerBox, cashCollected: +newCash, discrepancy: +newCash - +newQty * s.pricePerBox, edited: true } : s
     );
 
+    // FIX: record BEFORE and AFTER in the audit trail
+    const beforeDetail = `${sale.qty} boxes / ${fmt(sale.cashCollected)}`;
+    const afterDetail = `${+newQty} boxes / ${fmt(+newCash)}`;
+
     let nd = { ...data, sales: newSales, products: newProducts };
-    nd = addAudit(nd, "SALE_EDIT", `Sale edited: ${sale.productName} — ${+newQty} boxes, ${fmt(+newCash)}`, rep.name);
+    nd = addAudit(nd, "SALE_EDIT", `${rep.name} edited ${sale.productName} — WAS: ${beforeDetail} → NOW: ${afterDetail}`, rep.name);
     save(nd);
     setEditingSaleId(null);
     setEditQty("");
@@ -275,7 +308,7 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
 
       <div className="content" style={{ paddingBottom: 24 }}>
         {availableProducts.length === 0 && (
-          <Alert message="No products in stock. Ask owner to record a delivery." type="gold" />
+          <Alert message="No products in stock. Ask owner to record a delivery." type="gold" onDismiss={() => {}} />
         )}
 
         <div style={{ fontFamily: "var(--font-h)", fontSize: 13, color: "var(--muted)", marginBottom: 12, textTransform: "uppercase", fontWeight: 600 }}>Select Product</div>
@@ -285,7 +318,7 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
               <div className="prod-name">{p.name}</div>
               <div className="prod-price">{fmt(p.sellPrice)}/box</div>
               <div className="prod-stock">{p.stock > 0 ? `${p.stock.toLocaleString()} in stock` : "Out of stock"}</div>
-              <div className="bar-bg"><div className="bar-fill" style={{ width: Math.min(100, (p.stock / 500) * 100) + "%", background: "var(--green3)" }}></div></div>
+              <div className="bar-bg"><div className="bar-fill" style={{ width: Math.min(100, (p.stock / (p.expectedQty || 500)) * 100) + "%", background: "var(--green3)" }}></div></div>
             </div>
           ))}
         </div>
@@ -387,6 +420,14 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
                 <input className="finput" value={note} onChange={e => setNote(e.target.value)} placeholder="E.g., Repeat customer" />
               </div>
 
+              {/* Low-cash reason field — shown automatically when cash < 50% of expected */}
+              {cash && qty && selected && +cash < (+qty * (negotiate && bargainPrice ? +bargainPrice : selected.sellPrice)) * 0.5 && (
+                <div className="fg">
+                  <label className="flabel" style={{ color: "var(--red)" }}>⚠ Cash is below 50% — Reason required</label>
+                  <input className="finput" style={{ borderColor: "var(--red)" }} value={lowCashNote} onChange={e => setLowCashNote(e.target.value)} placeholder="E.g., customer paying balance tomorrow" />
+                </div>
+              )}
+
               {editAlert && <Alert message={editAlert} type="red" onDismiss={() => setEditAlert("")} />}
 
               <button className="btn btn-green btn-full btn-lg" onClick={submit}>✓ Confirm Sale</button>
@@ -407,14 +448,23 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
                   </div>
                   <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 2 }}>{fmt(s.cashCollected)}</div>
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => { setEditingSaleId(s.id); setEditQty(String(s.qty)); setEditCash(String(s.cashCollected)); }} title="Edit this sale">✏</button>
+                {/* FIX: one-edit lock — rep can only edit a sale once */}
+                {s.edited ? (
+                  <span style={{ fontSize: 11, color: "var(--muted)", fontStyle: "italic" }}>Owner only</span>
+                ) : (
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setEditingSaleId(s.id); setEditQty(String(s.qty)); setEditCash(String(s.cashCollected)); }} title="Edit this sale">✏</button>
+                )}
               </div>
             ))}
             {totalPages > 1 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, fontSize: 13 }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>← Prev</button>
-                <span style={{ color: 'var(--muted)' }}>Page {page + 1} of {totalPages}</span>
-                <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}>Next →</button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} style={{ flex: '0 0 auto' }}>← Prev</button>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center', flex: 1 }}>
+                  {Array.from({ length: totalPages }, (_, i) => (
+                    <button key={i} className={`btn btn-sm ${i === page ? 'btn-green' : 'btn-ghost'}`} onClick={() => setPage(i)} style={{ minWidth: 32, padding: '6px 10px' }}>{i + 1}</button>
+                  ))}
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1} style={{ flex: '0 0 auto' }}>Next →</button>
               </div>
             )}
             <div style={{ marginTop: 12, fontFamily: "var(--font-m)", fontSize: 14, color: "var(--green2)", fontWeight: 600 }}>

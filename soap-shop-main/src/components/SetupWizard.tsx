@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SetupWizardProps, SalesRep } from '../types';
 import { uid } from '../lib/utils';
+import { hashPin } from '../lib/crypto';
 import Alert from './Alert';
 
 const STYLE = `
@@ -75,22 +76,24 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [repPin2, setRepPin2] = useState<string>("");
   const [repErr, setRepErr] = useState<string>("");
 
-  const addRep = () => {
+  const addRep = async () => {
     if (!repName.trim()) return setRepErr("Enter a name.");
     if (!/^\d{4}$/.test(repPin)) return setRepErr("PIN must be exactly 4 digits.");
     if (repPin !== repPin2) return setRepErr("PINs don't match.");
-    setReps(r => [...r, { id: uid(), name: repName.trim(), pin: repPin }]);
+    const hashedRepPin = await hashPin(repPin);
+    setReps(r => [...r, { id: uid(), name: repName.trim(), pin: hashedRepPin }]);
     setRepName(""); setRepPin(""); setRepPin2(""); setRepErr("");
   };
 
-  const finish = () => {
+  const finish = async () => {
     if (step === 1) {
       if (!/^\d{4}$/.test(pin)) return setErr("PIN must be exactly 4 digits.");
       if (pin !== pin2) return setErr("The two PINs don't match.");
       setErr(""); setStep(2);
     } else {
       if (reps.length === 0) return setRepErr("Please add at least one sales rep.");
-      onComplete(pin, reps);
+      const hashedOwnerPin = await hashPin(pin);
+      onComplete(hashedOwnerPin, reps);
     }
   };
 
@@ -119,7 +122,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
               <label className="flabel">Confirm PIN</label>
               <input className={`finput big${err ? " err" : ""}`} type="password" inputMode="numeric" maxLength={4} value={pin2} onChange={e => { setPin2(e.target.value.replace(/\D/g, "")); setErr(""); }} />
             </div>
-            {err && <Alert message={err} type="red" />}
+            {err && <Alert message={err} type="red" onDismiss={() => setErr("")} />}
             <button className="btn btn-green btn-full btn-lg" onClick={finish} style={{ marginTop: 8 }}>Next → Add Sales Reps</button>
           </>
         ) : (
@@ -148,7 +151,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 <input className="finput" type="password" inputMode="numeric" maxLength={4} value={repPin2} onChange={e => { setRepPin2(e.target.value.replace(/\D/g, "")); setRepErr(""); }} />
               </div>
             </div>
-            {repErr && <Alert message={repErr} type="red" />}
+            {repErr && <Alert message={repErr} type="red" onDismiss={() => setRepErr("")} />}
             <button className="btn btn-ghost btn-full" style={{ marginBottom: 10 }} onClick={addRep}>+ Add Another Rep</button>
             <button className="btn btn-green btn-full btn-lg" onClick={finish} disabled={reps.length === 0}>✓ Finish Setup</button>
           </>
