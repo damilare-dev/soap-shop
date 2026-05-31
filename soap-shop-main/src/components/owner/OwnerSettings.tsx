@@ -34,6 +34,7 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
   const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
   // FIX 3: Track which rep is being confirmed for deletion
   const [removeRepConfirmId, setRemoveRepConfirmId] = useState<string | null>(null);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
 
   const sp = (k: keyof typeof prod, v: string) => setProd(f => ({ ...f, [k]: v }));
 
@@ -96,23 +97,28 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
   };
 
   const delProduct = (id: string) => {
+    // Mark as deleting BEFORE anything else — blocks the onBlur save from firing
+    setDeletingProductId(id);
     const p = data.products.find(x => x.id === id);
     const hasSales = data.sales.some(s => s.productId === id && !s.voided);
     if (hasSales) {
       setSettingsMsg(`⚠ Cannot delete "${p?.name}" — it has active sales records. Void all its sales first.`);
       setTimeout(() => setSettingsMsg(""), 4000);
+      setDeletingProductId(null);
       return;
     }
     const newProducts = data.products.filter(x => x.id !== id);
     let nd = { ...data, products: newProducts };
     nd = addAudit(nd, "PRODUCT_REMOVED", `Product removed: ${p?.name}`, "OWNER");
     save(nd);
+    setDeletingProductId(null);
     setSettingsMsg("✓ Product removed");
     setTimeout(() => setSettingsMsg(""), 2000);
   };
 
   const updateSellPrice = (id: string, price: string) => {
-    // FIX 6: Don't save invalid sell prices
+    // Skip save if this product is mid-deletion — onBlur fires before onClick in the browser
+    if (deletingProductId === id) return;
     if (!price || isNaN(+price) || +price <= 0) return;
     save({ ...data, products: data.products.map(p => p.id === id ? { ...p, sellPrice: +price } : p) });
   };
