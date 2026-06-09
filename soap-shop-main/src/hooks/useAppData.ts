@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, cloudEnabled } from '../lib/supabase';
 import { StateData } from '../types';
+import { applyOWDSeed } from '../lib/seedOWDProducts';
 
 const STORAGE_KEY = 'soap-shop-local';
 
@@ -86,9 +87,30 @@ export function useAppData() {
       const remote = cloudEnabled ? await loadFromSupabase() : null;
       const local = loadLocal();
       const resolved = remote ?? local ?? DEFAULT_STATE;
-      setData(resolved);
-      dataRef.current = resolved;
+      // Seed OWD products once if no products exist yet
+      const seeded = applyOWDSeed(resolved);
+      const wasSeeded = seeded.products.length !== resolved.products.length;
+      setData(seeded);
+      dataRef.current = seeded;
       setLoading(false);
+      // Persist seed immediately so Supabase + local get the products & audit entries
+      if (wasSeeded) {
+        saveLocal(seeded);
+        if (supabase) {
+          await Promise.allSettled([
+            supabase.from('products').upsert(
+              seeded.products.map(p => ({
+                id: p.id, name: p.name, schedule: p.schedule,
+                expected_qty: p.expectedQty, cost_price: p.costPrice,
+                sell_price: p.sellPrice, stock: p.stock,
+              }))
+            ),
+            supabase.from('audit_log').insert(
+              seeded.auditLog.map(a => ({ id: a.id, ts: a.ts, action: a.action, detail: a.detail, actor: a.actor }))
+            ),
+          ]);
+        }
+      }
     })();
   }, [loadFromSupabase]);
 
