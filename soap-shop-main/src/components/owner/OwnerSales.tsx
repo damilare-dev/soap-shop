@@ -22,9 +22,12 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
   const activeFiltered = allFiltered.filter(s => !s.voided);
   const voidedFiltered = allFiltered.filter(s => s.voided);
 
-  const repMap: Record<string, { expected: number; collected: number; qty: number; count: number }> = {};
+  const repMap: Record<string, { expected: number; collected: number; qty: number; count: number; warehouse: string }> = {};
   activeFiltered.forEach(s => {
-    if (!repMap[s.repName]) repMap[s.repName] = { expected: 0, collected: 0, qty: 0, count: 0 };
+    if (!repMap[s.repName]) {
+      const rep = data.reps.find(r => r.id === s.repId);
+      repMap[s.repName] = { expected: 0, collected: 0, qty: 0, count: 0, warehouse: rep?.warehouse ?? '' };
+    }
     repMap[s.repName].expected += s.expectedCash;
     repMap[s.repName].collected += s.cashCollected;
     repMap[s.repName].qty += s.qty;
@@ -66,14 +69,17 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
         <div className="card">
           <div className="card-title">👥 Rep Accountability</div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Expected vs collected cash</div>
-          {(Object.entries(repMap) as Array<[string, { expected: number; collected: number; qty: number; count: number }]>).map(([name, r]) => {
+          {(Object.entries(repMap) as Array<[string, { expected: number; collected: number; qty: number; count: number; warehouse: string }]>).map(([name, r]) => {
             const disc = r.collected - r.expected;
             const isShort = disc < -200;
             return (
               <div key={name} className="row" style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 15 }}>{name}</div>
-                  <div style={{ fontSize: 12, color: "var(--muted)" }}>{r.count} sale{r.count !== 1 ? "s" : ""}</div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>
+                    {name}
+                    {r.warehouse && <span className={`badge ${r.warehouse === 'JLY' ? 'badge-blue' : 'badge-green'}`} style={{ marginLeft: 6 }}>{r.warehouse}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--muted)" }}>{r.count} sale{r.count !== 1 ? "s" : ""} · {r.qty} boxes</div>
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontFamily: "var(--font-m)", fontSize: 13, fontWeight: 600 }}>{fmt(r.collected)}</div>
@@ -137,38 +143,11 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
           );
         })}
 
-        {/* Fully responsive pagination */}
         {totalPages > 1 && (
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: 14,
-            gap: 8,
-            flexWrap: 'wrap',
-          }}>
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setPage(p => Math.max(0, p - 1))}
-              disabled={page === 0}
-              style={{ flex: '0 0 auto' }}
-            >← Prev</button>
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center', flex: 1 }}>
-              {Array.from({ length: totalPages }, (_, i) => (
-                <button
-                  key={i}
-                  className={`btn btn-sm ${i === page ? 'btn-green' : 'btn-ghost'}`}
-                  onClick={() => setPage(i)}
-                  style={{ minWidth: 32, padding: '6px 10px' }}
-                >{i + 1}</button>
-              ))}
-            </div>
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-              disabled={page === totalPages - 1}
-              style={{ flex: '0 0 auto' }}
-            >Next →</button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, gap: 8 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>← Prev</button>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Page {page + 1} of {totalPages}</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}>Next →</button>
           </div>
         )}
       </div>

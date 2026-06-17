@@ -82,7 +82,11 @@ export default function RepLoginScreen({ reps, onSuccess, onBack }: RepLoginScre
       verifyPin(next, chosen!.pin).then(match => {
         const plainMatch = next === chosen!.pin;
         if (match || plainMatch) {
-          setTimeout(() => onSuccess(chosen!), 200);
+          const repWithWarehouse = {
+            ...chosen!,
+            warehouse: (chosen!.warehouse === 'JLY' ? 'JLY' : 'OWD') as 'OWD' | 'JLY',
+          };
+          setTimeout(() => onSuccess(repWithWarehouse), 200);
         } else {
           setTimeout(() => {
             setEntered("");

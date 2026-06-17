@@ -12,11 +12,13 @@ export type SalesRep = {
   id: string;
   name: string;
   pin: string;
+  warehouse: 'OWD' | 'JLY';
 };
 
 export type Delivery = {
   id: string;
   productId: string;
+  productName?: string;
   qty: number;
   costPerBox: number;
   date: string;

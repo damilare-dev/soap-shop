@@ -111,11 +111,19 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
   const [editCash, setEditCash] = useState<string>('');
   const [editAlert, setEditAlert] = useState<string>('');
   const [page, setPage] = useState(0);
+  const [prodSearch, setProdSearch] = useState('');
   const PAGE_SIZE = 10;
 
   const maxDiscount = data.maxDiscountPct ?? 15;
   const activeSales = data.sales.filter(s => !s.voided);
   const todaySales = activeSales.filter(s => s.date === today() && s.repId === rep.id);
+  // Defensive: if warehouse missing on rep object, try to infer from rep name or default to OWD
+  const repWarehouse: 'OWD' | 'JLY' = (rep.warehouse === 'JLY') ? 'JLY' : (rep.warehouse === 'OWD' ? 'OWD' : 'OWD');
+  const warehouseTag = `(${repWarehouse})`;
+  const repProducts = data.products.filter(p => p.name.includes(warehouseTag));
+  const filteredRepProducts = prodSearch
+    ? repProducts.filter(p => p.name.toLowerCase().includes(prodSearch.toLowerCase()))
+    : repProducts;
 
   const getAvailableStock = (product: Product) => {
     const reservedInCart = cart
@@ -134,6 +142,7 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
     setCash('');
     setNote('');
     setFormAlert('');
+    setProdSearch('');
   };
 
   const handleQty = (v: string) => {
@@ -145,7 +154,8 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
 
   const addToCart = () => {
     if (!selected) return setFormAlert('Please select a product first.');
-    if (!qty || +qty <= 0 || !Number.isInteger(+qty)) return setFormAlert('Please enter a whole number quantity.');
+    if (!qty || +qty <= 0) return setFormAlert('Please enter a valid quantity.');
+    if (+qty % 0.5 !== 0) return setFormAlert('Quantity must be in whole or half boxes (e.g. 1, 1.5, 2).');
     const availableStock = getAvailableStock(selected);
     if (+qty > availableStock) return setFormAlert(`Only ${availableStock} boxes available (some may be reserved in cart).`);
     if (!cash || isNaN(+cash)) return setFormAlert('Please enter the cash collected.');
@@ -254,7 +264,7 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
   };
 
   const editSale = (saleId: string, newQty: string, newCash: string) => {
-    if (!Number.isInteger(+newQty) || +newQty <= 0) return setEditAlert('Invalid quantity.');
+    if (!newQty || +newQty <= 0 || +newQty % 0.5 !== 0) return setEditAlert('Invalid quantity. Must be in whole or half boxes.');
     if (isNaN(+newCash)) return setEditAlert('Invalid cash amount.');
     if (+newCash < 0) return setEditAlert('Cash collected cannot be negative.');
 
@@ -385,19 +395,29 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
       <div className="topbar">
         <div>
           <div className="topbar-logo">📝 Record Sale</div>
-          <div className="topbar-sub">{rep.name}{cart.length > 0 ? ` · 🛒 ${cart.length} in cart` : ''}</div>
+          <div className="topbar-sub">{rep.name} · {rep.warehouse ?? 'OWD'}{cart.length > 0 ? ` · 🛒 ${cart.length} in cart` : ''}</div>
         </div>
         <button className="topbar-btn" onClick={onLogout}>Logout</button>
       </div>
 
       <div className="content" style={{ paddingBottom: 24 }}>
-        {data.products.filter(p => p.stock > 0).length === 0 && (
+        {repProducts.filter(p => p.stock > 0).length === 0 && (
           <Alert message="No products in stock. Ask owner to record a delivery." type="gold" onDismiss={() => {}} />
         )}
 
-        <div style={{ fontFamily: 'var(--font-h)', fontSize: 13, color: 'var(--muted)', marginBottom: 12, textTransform: 'uppercase', fontWeight: 600 }}>Select Product</div>
+        <div style={{ fontFamily: 'var(--font-h)', fontSize: 13, color: 'var(--muted)', marginBottom: 8, textTransform: 'uppercase', fontWeight: 600 }}>Select Product</div>
+        <input
+          className="finput"
+          style={{ marginBottom: 12 }}
+          placeholder={`Search ${repWarehouse} products…`}
+          value={prodSearch}
+          onChange={e => setProdSearch(e.target.value)}
+        />
         <div className="prod-grid">
-          {data.products.map(p => {
+          {filteredRepProducts.length === 0 && (
+            <div style={{ gridColumn: '1/-1', fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>No products match.</div>
+          )}
+          {filteredRepProducts.map(p => {
             const availStock = getAvailableStock(p);
             return (
               <div
@@ -406,7 +426,7 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
                 onClick={() => availStock > 0 && handleSelectProduct(p)}
                 style={{ cursor: availStock > 0 ? 'pointer' : 'not-allowed' }}
               >
-                <div className="prod-name">{p.name}</div>
+                <div className="prod-name">{p.name.replace(` (${repWarehouse})`, '')}</div>
                 <div className="prod-price">{fmt(p.sellPrice)}/box</div>
                 <div className="prod-stock">
                   {availStock > 0 ? `${availStock.toLocaleString()} available` : 'Out of stock'}
@@ -425,7 +445,7 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
             <div className="card">
               <div className="fg">
                 <label className="flabel">How many boxes sold? *</label>
-                <input className="finput big" type="number" min="1" max={getAvailableStock(selected)} value={qty} onChange={e => handleQty(e.target.value)} />
+                <input className="finput big" type="number" step="0.5" min="0.5" max={getAvailableStock(selected)} value={qty} onChange={e => handleQty(e.target.value)} />
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>Max: {getAvailableStock(selected)} boxes</div>
               </div>
 

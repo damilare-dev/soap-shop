@@ -1,15 +1,8 @@
 import { useState, ChangeEvent } from 'react';
-import { OwnerSettingsProps, Product } from '../../types';
+import { OwnerSettingsProps } from '../../types';
 import { uid, today, fmt } from '../../lib/utils';
 import { hashPin } from '../../lib/crypto';
 import Alert from '../Alert';
-
-const DEFAULT_PRODUCTS: Product[] = [
-  { id: "p1", name: "Sunlight Soap", schedule: "biweekly", expectedQty: 2200, costPrice: 850, sellPrice: 1200, stock: 500 },
-  { id: "p2", name: "Premier Soap", schedule: "monthly", expectedQty: 700, costPrice: 600, sellPrice: 950, stock: 300 },
-  { id: "p3", name: "Key Soap", schedule: "monthly", expectedQty: 650, costPrice: 700, sellPrice: 1100, stock: 250 },
-  { id: "p4", name: "Morning Fresh", schedule: "monthly", expectedQty: 650, costPrice: 650, sellPrice: 1050, stock: 280 },
-];
 
 function downloadJson(filename: string, json: string) {
   const blob = new Blob([json], { type: "application/json" });
@@ -29,12 +22,19 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
   const [repPin, setRepPin] = useState<string>("");
   const [repPin2, setRepPin2] = useState<string>("");
   const [repErr, setRepErr] = useState<string>("");
+  const [repWarehouse, setRepWarehouse] = useState<'OWD' | 'JLY'>('OWD');
   const [prod, setProd] = useState({ name: "", costPrice: "", sellPrice: "", expectedQty: "", schedule: "monthly" });
   const [settingsMsg, setSettingsMsg] = useState<string>("");
   const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
   // FIX 3: Track which rep is being confirmed for deletion
   const [removeRepConfirmId, setRemoveRepConfirmId] = useState<string | null>(null);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
+  const [productSearch, setProductSearch] = useState("");
+  const [manageFilter, setManageFilter] = useState<'ALL' | 'OWD' | 'JLY'>('ALL');
+  const [prodPage, setProdPage] = useState(0);
+  const PROD_PAGE_SIZE = 15;
+  // Bug 2 fix: local state for discount input to avoid save-on-every-keystroke
+  const [discountInput, setDiscountInput] = useState(String(data.maxDiscountPct ?? 15));
 
   const sp = (k: keyof typeof prod, v: string) => setProd(f => ({ ...f, [k]: v }));
 
@@ -59,11 +59,11 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
       return setRepErr("A rep with that name already exists.");
     }
     const hashedPin = await hashPin(repPin);
-    const newRep = { id: uid(), name: repName.trim(), pin: hashedPin };
+    const newRep = { id: uid(), name: repName.trim(), pin: hashedPin, warehouse: repWarehouse };
     let nd = { ...data, reps: [...data.reps, newRep] };
-    nd = addAudit(nd, "REP_ADDED", `New rep: ${repName.trim()}`, "OWNER");
+    nd = addAudit(nd, "REP_ADDED", `New rep: ${repName.trim()} (${repWarehouse})`, "OWNER");
     save(nd);
-    setRepName(""); setRepPin(""); setRepPin2(""); setRepErr("");
+    setRepName(""); setRepPin(""); setRepPin2(""); setRepErr(""); setRepWarehouse('OWD');
     setSettingsMsg("✓ Rep added");
     setTimeout(() => setSettingsMsg(""), 2000);
   };
@@ -83,7 +83,7 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
   const addProduct = () => {
     if (!prod.name.trim()) return setSettingsMsg("⚠ Fill product name.");
     if (!prod.costPrice || !prod.sellPrice) return setSettingsMsg("⚠ Fill name, cost, sell price.");
-    if (+prod.costPrice <= 0 || +prod.sellPrice <= 0) return setSettingsMsg("⚠ Prices must be greater than 0.");
+    if (+prod.costPrice < 0 || +prod.sellPrice <= 0) return setSettingsMsg("⚠ Sell price must be greater than 0.");
     // FIX 5: Warn if sell price is lower than cost price
     if (+prod.sellPrice < +prod.costPrice) return setSettingsMsg("⚠ Sell price is lower than cost price — check values.");
 
@@ -120,7 +120,40 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
     // Skip save if this product is mid-deletion — onBlur fires before onClick in the browser
     if (deletingProductId === id) return;
     if (!price || isNaN(+price) || +price <= 0) return;
-    save({ ...data, products: data.products.map(p => p.id === id ? { ...p, sellPrice: +price } : p) });
+    const p = data.products.find(x => x.id === id);
+    if (!p || +price === p.sellPrice) return;
+    let nd = { ...data, products: data.products.map(x => x.id === id ? { ...x, sellPrice: +price } : x) };
+    nd = addAudit(nd, 'PRICE_CHANGE', `${p.name} sell price: ${fmt(p.sellPrice)} → ${fmt(+price)}`, 'OWNER');
+    save(nd);
+    setSettingsMsg(`✓ Sell price updated: ${p.name}`);
+    setTimeout(() => setSettingsMsg(''), 2500);
+  };
+
+  const updateCostPrice = (id: string, price: string) => {
+    if (deletingProductId === id) return;
+    if (!price || isNaN(+price) || +price < 0) return;
+    const p = data.products.find(x => x.id === id);
+    if (!p || +price === p.costPrice) return;
+    let nd = { ...data, products: data.products.map(x => x.id === id ? { ...x, costPrice: +price } : x) };
+    nd = addAudit(nd, 'COST_CHANGE', `${p.name} cost price: ${fmt(p.costPrice)} → ${fmt(+price)}`, 'OWNER');
+    save(nd);
+    setSettingsMsg(`✓ Cost price updated: ${p.name}`);
+    setTimeout(() => setSettingsMsg(''), 2500);
+  };
+
+  const updateStock = (id: string, newStock: string) => {
+    if (deletingProductId === id) return;
+    if (newStock === '' || isNaN(+newStock) || +newStock < 0) return;
+    const p = data.products.find(x => x.id === id);
+    if (!p) return;
+    const oldStock = p.stock;
+    const updated = +newStock;
+    if (updated === oldStock) return;
+    let nd = { ...data, products: data.products.map(x => x.id === id ? { ...x, stock: updated } : x) };
+    nd = addAudit(nd, 'STOCK_ADJUST', `${p.name} stock adjusted: ${oldStock} → ${updated}`, 'OWNER');
+    save(nd);
+    setSettingsMsg(`✓ Stock updated: ${p.name} → ${updated}`);
+    setTimeout(() => setSettingsMsg(''), 3000);
   };
 
   const exportData = () => {
@@ -142,7 +175,8 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
         !Array.isArray(imported.sales) ||
         !Array.isArray(imported.products) ||
         !Array.isArray(imported.reps) ||
-        !Array.isArray(imported.deliveries)
+        !Array.isArray(imported.deliveries) ||
+        !Array.isArray(imported.auditLog)
       ) {
         throw new Error("Invalid backup file");
       }
@@ -182,8 +216,7 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
         {data.reps.map(r => (
           <div key={r.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
             <div className="row">
-              <span style={{ fontWeight: 600 }}>👤 {r.name}</span>
-              {/* FIX 3: Two-step confirm before removing */}
+              <span style={{ fontWeight: 600 }}>👤 {r.name} <span className={`badge ${r.warehouse === 'JLY' ? 'badge-blue' : 'badge-green'}`}>{r.warehouse ?? 'OWD'}</span></span>
               {removeRepConfirmId === r.id ? (
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <span style={{ fontSize: 12, color: "var(--red)", fontWeight: 600 }}>Remove?</span>
@@ -204,6 +237,13 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
           <label className="flabel">Rep Name</label>
           <input className="finput" value={repName} onChange={e => { setRepName(e.target.value); setRepErr(""); }} placeholder="E.g., John" />
         </div>
+        <div className="fg">
+          <label className="flabel">Warehouse</label>
+          <select className="fselect" value={repWarehouse} onChange={e => setRepWarehouse(e.target.value as 'OWD' | 'JLY')}>
+            <option value="OWD">Owode (OWD)</option>
+            <option value="JLY">Jaleyemi (JLY)</option>
+          </select>
+        </div>
         <div className="two-col">
           <div className="fg">
             <label className="flabel">Rep PIN</label>
@@ -219,35 +259,104 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
       </div>
 
       <div className="card">
-        <div className="card-title">🛁 Manage Products</div>
-        {data.products.map(p => (
-          <div key={p.id} className="row" style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
-              <div style={{ fontSize: 12, color: "var(--muted)" }}>Cost: {fmt(p.costPrice)} · Stock: {p.stock}</div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                className="finput"
-                type="number"
-                style={{ width: 90, padding: "6px 10px", fontSize: 13 }}
-                defaultValue={p.sellPrice}
-                id={`price-${p.id}`}
-                placeholder="Sell price"
-                title="Sell Price"
-              />
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  const input = document.getElementById(`price-${p.id}`) as HTMLInputElement;
-                  updateSellPrice(p.id, input?.value ?? '');
-                }}
-                title="Save price"
-              >✓</button>
-              <button className="btn btn-red btn-sm" onClick={() => delProduct(p.id)} title="Delete product">✕</button>
-            </div>
-          </div>
-        ))}
+        <div className="card-title">🛁 Manage Products <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)' }}>({data.products.length})</span></div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
+          Tap any number to change it, then tap ✓ to save. Each product shows its profit per box automatically.
+        </div>
+
+        {/* Warehouse filter tabs */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          {(['ALL', 'OWD', 'JLY'] as const).map(w => (
+            <button
+              key={w}
+              className={`btn btn-sm ${manageFilter === w ? 'btn-green' : 'btn-ghost'}`}
+              onClick={() => { setManageFilter(w); setProdPage(0); }}
+            >{w === 'ALL' ? 'All' : w}</button>
+          ))}
+        </div>
+
+        <input
+          className="finput"
+          style={{ marginBottom: 14 }}
+          placeholder="🔍 Search products…"
+          value={productSearch}
+          onChange={e => { setProductSearch(e.target.value); setProdPage(0); }}
+        />
+
+        {(() => {
+          const filtered = data.products
+            .filter(p => manageFilter === 'ALL' || p.name.includes(`(${manageFilter})`))
+            .filter(p => !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase()));
+          const totalPages = Math.ceil(filtered.length / PROD_PAGE_SIZE);
+          const paged = filtered.slice(prodPage * PROD_PAGE_SIZE, (prodPage + 1) * PROD_PAGE_SIZE);
+          return (
+            <>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+                {filtered.length} product{filtered.length !== 1 ? 's' : ''}
+                {totalPages > 1 && ` · Page ${prodPage + 1} of ${totalPages}`}
+              </div>
+              {paged.map(p => {
+                const tag = p.name.includes('(JLY)') ? 'JLY' : 'OWD';
+                const cleanName = p.name.replace(/ \((OWD|JLY)\)$/, '');
+                const profit = p.sellPrice - p.costPrice;
+                return (
+                  <div key={p.id} style={{ background: '#faf8f4', borderRadius: 12, padding: 14, marginBottom: 10, border: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 700, fontSize: 15 }}>{cleanName}</span>
+                        <span className={`badge ${tag === 'JLY' ? 'badge-blue' : 'badge-green'}`}>{tag}</span>
+                      </div>
+                      <button className="btn btn-red btn-sm" onClick={() => delProduct(p.id)} title="Delete product" style={{ flexShrink: 0 }}>🗑</button>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '6px 10px', borderRadius: 8, marginBottom: 10, background: profit > 0 ? 'var(--green-light)' : 'var(--red-light)' }}>
+                      <span style={{ color: 'var(--muted)' }}>Profit per box</span>
+                      <strong style={{ fontFamily: 'var(--font-m)', color: profit > 0 ? 'var(--green2)' : 'var(--red)' }}>{fmt(profit)}</strong>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                      {[
+                        { label: 'Cost ₦', id: `cost-${p.id}`, val: p.costPrice, fn: updateCostPrice, step: undefined },
+                        { label: 'Sell ₦', id: `price-${p.id}`, val: p.sellPrice, fn: updateSellPrice, step: undefined },
+                        { label: 'Stock', id: `stock-${p.id}`, val: p.stock, fn: updateStock, step: '0.5' },
+                      ].map(f => (
+                        <div key={f.id}>
+                          <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4, fontWeight: 600 }}>{f.label}</div>
+                          <div style={{ display: 'flex', gap: 3 }}>
+                            <input
+                              className="finput"
+                              type="number"
+                              inputMode="decimal"
+                              style={{ padding: '8px 8px', fontSize: 13, fontFamily: 'var(--font-m)', minWidth: 0 }}
+                              defaultValue={f.val}
+                              id={f.id}
+                              step={f.step}
+                              min="0"
+                            />
+                            <button
+                              className="btn btn-green btn-sm"
+                              style={{ padding: '8px 9px', flexShrink: 0 }}
+                              onClick={() => {
+                                const input = document.getElementById(f.id) as HTMLInputElement;
+                                f.fn(p.id, input?.value ?? '');
+                              }}
+                              title="Save"
+                            >✓</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {totalPages > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, marginBottom: 6, gap: 8 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setProdPage(p => Math.max(0, p - 1))} disabled={prodPage === 0}>← Prev</button>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Page {prodPage + 1} of {totalPages}</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setProdPage(p => Math.min(totalPages - 1, p + 1))} disabled={prodPage === totalPages - 1}>Next →</button>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         <div className="divider" />
 
@@ -293,10 +402,12 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
             type="number"
             min={0}
             max={100}
-            value={data.maxDiscountPct ?? 15}
-            onChange={e => {
-              const v = Math.min(100, Math.max(0, +e.target.value));
-              save({ ...data, maxDiscountPct: v });
+            value={discountInput}
+            onChange={e => setDiscountInput(e.target.value)}
+            onBlur={() => {
+              const v = Math.min(100, Math.max(0, +discountInput || 0));
+              setDiscountInput(String(v));
+              if (v !== (data.maxDiscountPct ?? 15)) save({ ...data, maxDiscountPct: v });
             }}
           />
           <div style={{ fontSize: 12, color: "var(--muted)" }}>
@@ -325,7 +436,7 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
             <div style={{ fontWeight: 600, fontSize: 14, color: "var(--red)", marginBottom: 10 }}>⚠ Are you sure? This CANNOT be undone.</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn btn-red btn-sm" onClick={() => {
-                save({ ownerPin: data.ownerPin, maxDiscountPct: data.maxDiscountPct ?? 15, reps: data.reps, products: DEFAULT_PRODUCTS.map(p => ({ ...p, stock: 0 })), deliveries: [], sales: [], auditLog: [] });
+                save({ ownerPin: data.ownerPin, maxDiscountPct: data.maxDiscountPct ?? 15, reps: data.reps, products: data.products.map(p => ({ ...p, stock: 0 })), deliveries: [], sales: [], auditLog: [] });
                 setSettingsMsg("✓ Data reset");
                 setVoidConfirmId(null);
                 setTimeout(() => setSettingsMsg(""), 2000);

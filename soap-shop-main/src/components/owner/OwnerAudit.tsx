@@ -11,6 +11,7 @@ const ACTION_LABELS: Record<string, { icon: string; color: string }> = {
   REP_REMOVED:  { icon: '👤', color: '#c0392b' },
   PRODUCT_ADDED:   { icon: '🛁', color: '#1a3d2b' },
   PRODUCT_REMOVED: { icon: '🛁', color: '#c0392b' },
+  STOCK_ADJUST:    { icon: '🔢', color: '#1a5c8a' },
 };
 
 export default function OwnerAudit({ data }: { data: StateData }) {

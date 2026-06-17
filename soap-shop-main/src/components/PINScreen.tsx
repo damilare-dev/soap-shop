@@ -19,6 +19,7 @@ const STYLE = `
  --font-b:'DM Sans',sans-serif;
  --font-m:'DM Mono',monospace;
  --muted:#6b6b6b;
+ --text:#1a1a1a;
 }
 html,body,#root{height:100%;}
 body{background:var(--bg);color:var(--text);font-family:var(--font-b);}

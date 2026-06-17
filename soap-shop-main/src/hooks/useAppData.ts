@@ -51,6 +51,7 @@ export function useAppData() {
         maxDiscountPct: maxDiscRow ? Number(maxDiscRow.value) : 15,
         reps: (reps.data ?? []).map((r: any) => ({
           id: r.id, name: r.name, pin: r.pin_hash,
+          warehouse: (r.warehouse === 'OWD' || r.warehouse === 'JLY') ? r.warehouse : 'OWD' as const,
         })),
         products: (products.data ?? []).map((p: any) => ({
           id: p.id, name: p.name, schedule: p.schedule,
@@ -58,8 +59,8 @@ export function useAppData() {
           sellPrice: p.sell_price, stock: p.stock,
         })),
         deliveries: (deliveries.data ?? []).map((d: any) => ({
-          id: d.id, productId: d.product_id, qty: d.qty,
-          costPerBox: d.cost_per_box, date: d.date, supplier: d.supplier,
+          id: d.id, productId: d.product_id, productName: d.product_name ?? '',
+          qty: d.qty, costPerBox: d.cost_per_box, date: d.date, supplier: d.supplier,
         })),
         sales: (sales.data ?? []).map((s: any) => ({
           id: s.id, productId: s.product_id, productName: s.product_name,
@@ -86,38 +87,33 @@ export function useAppData() {
       setLoading(true);
       const remote = cloudEnabled ? await loadFromSupabase() : null;
       const local = loadLocal();
-      const resolved = remote ?? local ?? DEFAULT_STATE;
-      // Seed OWD products once if no products exist yet
-      const seeded = applyOWDSeed(resolved);
-      const wasSeeded = seeded.products.length !== resolved.products.length;
+      const base = remote ?? local ?? DEFAULT_STATE;
+      const seeded = applyOWDSeed(base);
       setData(seeded);
       dataRef.current = seeded;
+      saveLocal(seeded);
       setLoading(false);
-      // Persist seed immediately so Supabase + local get the products & audit entries
-      if (wasSeeded) {
-        saveLocal(seeded);
-        if (supabase) {
-          await Promise.allSettled([
-            supabase.from('products').upsert(
-              seeded.products.map(p => ({
-                id: p.id, name: p.name, schedule: p.schedule,
-                expected_qty: p.expectedQty, cost_price: p.costPrice,
-                sell_price: p.sellPrice, stock: p.stock,
-              }))
-            ),
-            supabase.from('audit_log').insert(
-              seeded.auditLog.map(a => ({ id: a.id, ts: a.ts, action: a.action, detail: a.detail, actor: a.actor }))
-            ),
-          ]);
-        }
+      if (seeded !== base && supabase) {
+        await Promise.allSettled([
+          supabase.from('products').upsert(
+            seeded.products.map(p => ({
+              id: p.id, name: p.name, schedule: p.schedule,
+              expected_qty: p.expectedQty, cost_price: p.costPrice,
+              sell_price: p.sellPrice, stock: p.stock,
+            }))
+          ),
+          supabase.from('audit_log').insert(
+            seeded.auditLog
+              .filter(a => !base.auditLog.some(x => x.id === a.id))
+              .map(a => ({ id: a.id, ts: a.ts, action: a.action, detail: a.detail, actor: a.actor }))
+          ),
+        ]);
       }
     })();
   }, [loadFromSupabase]);
 
-  // Track when we're mid-save so realtime doesn't overwrite our own changes
-  const isSaving = useRef(false);
-
   const save = useCallback(async (next: StateData) => {
+    // 1. Update UI and localStorage immediately — user sees change instantly
     setData(next);
     saveLocal(next);
 
@@ -126,134 +122,98 @@ export function useAppData() {
 
     if (!supabase) return;
 
-    isSaving.current = true;
-
-    const promises: any[] = [];
-
-    // FIX: Run deletes FIRST, then upserts — prevents race where upsert writes back a deleted row
-    const deletePromises: any[] = [];
-    const upsertPromises: any[] = [];
-
-    if (next.ownerPin !== prev.ownerPin) {
-      upsertPromises.push(
-        supabase.from('app_config').upsert({ key: 'owner_pin', value: next.ownerPin })
-      );
-    }
-
-    if (next.maxDiscountPct !== prev.maxDiscountPct) {
-      upsertPromises.push(
-        supabase.from('app_config').upsert({ key: 'max_discount_pct', value: String(next.maxDiscountPct) })
-      );
-    }
-
+    // 2. Work out what changed
     const nextRepIds = new Set(next.reps.map(r => r.id));
     const deletedRepIds = prev.reps.filter(r => !nextRepIds.has(r.id)).map(r => r.id);
-    if (deletedRepIds.length) {
-      deletePromises.push(supabase.from('reps').delete().in('id', deletedRepIds));
-    }
-    if (next.reps.length) {
-      upsertPromises.push(
-        supabase.from('reps').upsert(
-          next.reps.map(r => ({ id: r.id, name: r.name, pin_hash: r.pin }))
-        )
-      );
-    }
 
     const nextProductIds = new Set(next.products.map(p => p.id));
     const deletedProductIds = prev.products.filter(p => !nextProductIds.has(p.id)).map(p => p.id);
-    if (deletedProductIds.length) {
-      deletePromises.push(supabase.from('products').delete().in('id', deletedProductIds));
-    }
-    if (next.products.length) {
-      upsertPromises.push(
-        supabase.from('products').upsert(
-          next.products.map(p => ({
-            id: p.id, name: p.name, schedule: p.schedule,
-            expected_qty: p.expectedQty, cost_price: p.costPrice,
-            sell_price: p.sellPrice, stock: p.stock,
-          }))
-        )
-      );
-    }
 
     const existingDeliveryIds = new Set(prev.deliveries.map(d => d.id));
     const newDeliveries = next.deliveries.filter(d => !existingDeliveryIds.has(d.id));
-    if (newDeliveries.length) {
-      upsertPromises.push(
-        supabase.from('deliveries').upsert(
-          newDeliveries.map(d => ({
-            id: d.id, product_id: d.productId, qty: d.qty,
-            cost_per_box: d.costPerBox, date: d.date, supplier: d.supplier,
-          }))
-        )
-      );
-    }
 
     const existingSaleMap = new Map(prev.sales.map(s => [s.id, s]));
     const changedSales = next.sales.filter(s => {
       const old = existingSaleMap.get(s.id);
       return !old || old.edited !== s.edited || old.voided !== s.voided || old.cashCollected !== s.cashCollected;
     });
-    if (changedSales.length) {
-      upsertPromises.push(
-        supabase.from('sales').upsert(
-          changedSales.map(s => ({
-            id: s.id, product_id: s.productId, product_name: s.productName,
-            rep_id: s.repId, rep_name: s.repName, qty: s.qty,
-            price_per_box: s.pricePerBox, standard_price: s.standardPrice,
-            expected_cash: s.expectedCash, cash_collected: s.cashCollected,
-            discrepancy: s.discrepancy, note: s.note, date: s.date, time: s.time,
-            voided: s.voided, voided_by: s.voidedBy ?? null, voided_at: s.voidedAt ?? null,
-            edited: s.edited, negotiated: s.negotiated,
-            negotiated_price: s.negotiatedPrice ?? null,
-            negotiation_reason: s.negotiationReason ?? '',
-          }))
-        )
-      );
-    }
 
     const existingAuditIds = new Set(prev.auditLog.map(a => a.id));
     const newAudit = next.auditLog.filter(a => !existingAuditIds.has(a.id));
+
+    // 3. Run ALL deletes first and wait for them to fully complete
+    const deletes: PromiseLike<any>[] = [];
+
+    if (deletedRepIds.length) {
+      deletes.push(supabase.from('reps').delete().in('id', deletedRepIds));
+    }
+    if (deletedProductIds.length) {
+      deletes.push(supabase.from('products').delete().in('id', deletedProductIds));
+    }
+
+    if (deletes.length) {
+      await Promise.all(deletes);
+    }
+
+    // 4. Only after deletes finish, run upserts
+    const upserts: PromiseLike<any>[] = [];
+
+    if (next.ownerPin !== prev.ownerPin) {
+      upserts.push(supabase.from('app_config').upsert({ key: 'owner_pin', value: next.ownerPin }));
+    }
+    if (next.maxDiscountPct !== prev.maxDiscountPct) {
+      upserts.push(supabase.from('app_config').upsert({ key: 'max_discount_pct', value: String(next.maxDiscountPct) }));
+    }
+    if (next.reps.length) {
+      upserts.push(
+        supabase.from('reps').upsert(next.reps.map(r => ({ id: r.id, name: r.name, pin_hash: r.pin, warehouse: r.warehouse ?? 'OWD' })))
+      );
+    }
+    if (next.products.length) {
+      upserts.push(
+        supabase.from('products').upsert(next.products.map(p => ({
+          id: p.id, name: p.name, schedule: p.schedule,
+          expected_qty: p.expectedQty, cost_price: p.costPrice,
+          sell_price: p.sellPrice, stock: p.stock,
+        })))
+      );
+    }
+    if (newDeliveries.length) {
+      upserts.push(
+        supabase.from('deliveries').upsert(newDeliveries.map(d => ({
+          id: d.id, product_id: d.productId, product_name: d.productName ?? '',
+          qty: d.qty, cost_per_box: d.costPerBox, date: d.date, supplier: d.supplier,
+        })))
+      );
+    }
+    if (changedSales.length) {
+      upserts.push(
+        supabase.from('sales').upsert(changedSales.map(s => ({
+          id: s.id, product_id: s.productId, product_name: s.productName,
+          rep_id: s.repId, rep_name: s.repName, qty: s.qty,
+          price_per_box: s.pricePerBox, standard_price: s.standardPrice,
+          expected_cash: s.expectedCash, cash_collected: s.cashCollected,
+          discrepancy: s.discrepancy, note: s.note, date: s.date, time: s.time,
+          voided: s.voided, voided_by: s.voidedBy ?? null, voided_at: s.voidedAt ?? null,
+          edited: s.edited, negotiated: s.negotiated,
+          negotiated_price: s.negotiatedPrice ?? null,
+          negotiation_reason: s.negotiationReason ?? '',
+        })))
+      );
+    }
     if (newAudit.length) {
-      upsertPromises.push(
-        supabase.from('audit_log').insert(
-          newAudit.map(a => ({ id: a.id, ts: a.ts, action: a.action, detail: a.detail, actor: a.actor }))
-        )
+      upserts.push(
+        supabase.from('audit_log').insert(newAudit.map(a => ({
+          id: a.id, ts: a.ts, action: a.action, detail: a.detail, actor: a.actor,
+        })))
       );
     }
 
-    // Deletes first, then upserts — order matters to prevent bounce-back
-    await Promise.allSettled(deletePromises);
-    const results = await Promise.allSettled(upsertPromises);
+    const results = await Promise.allSettled(upserts);
     results.forEach(r => {
-      if (r.status === 'rejected') console.warn('Supabase sync partial failure:', r.reason);
+      if (r.status === 'rejected') console.warn('Supabase sync error:', r.reason);
     });
-
-    // Release save lock after a short delay so realtime events during save are ignored
-    setTimeout(() => { isSaving.current = false; }, 1000);
   }, []);
-
-  useEffect(() => {
-    if (!supabase) return;
-
-    const reload = () => {
-      // Don't overwrite state with Supabase data while we're mid-save
-      if (isSaving.current) return;
-      loadFromSupabase().then(d => { if (d) { setData(d); dataRef.current = d; }});
-    };
-
-    const channel = supabase
-      .channel('db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, reload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, reload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' }, reload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reps' }, reload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_log' }, reload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' }, reload)
-      .subscribe();
-
-    return () => supabase.removeChannel(channel);
-  }, [loadFromSupabase]);
 
   return { data, save, loading };
 }
