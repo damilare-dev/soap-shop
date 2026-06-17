@@ -411,60 +411,55 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
           style={{ marginBottom: 12 }}
           placeholder={`Search ${repWarehouse} products…`}
           value={prodSearch}
-          onChange={e => setProdSearch(e.target.value)}
+          onChange={e => { setProdSearch(e.target.value); setPage(0); }}
         />
-
-        {filteredRepProducts.length === 0 && (
-          <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>No products match.</div>
-        )}
-
         {(() => {
-          // Group by brand (first word of clean name), in-stock first within each group
-          const groups: Record<string, Product[]> = {};
-          filteredRepProducts.forEach(p => {
-            const clean = p.name.replace(` (${repWarehouse})`, '');
-            const brand = clean.split(' ')[0];
-            if (!groups[brand]) groups[brand] = [];
-            groups[brand].push(p);
-          });
-          return Object.keys(groups).sort().map(brand => {
-            const sorted = [...groups[brand]].sort((a, b) => {
-              const aAvail = getAvailableStock(a) > 0 ? 0 : 1;
-              const bAvail = getAvailableStock(b) > 0 ? 0 : 1;
-              return aAvail - bAvail;
-            });
-            return (
-              <div key={brand} style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--muted)', paddingBottom: 6, borderBottom: '1.5px solid var(--border)', marginBottom: 8 }}>
-                  {brand}
+          const GRID_PAGE = 12;
+          const totalGridPages = Math.ceil(filteredRepProducts.length / GRID_PAGE);
+          const gridProducts = filteredRepProducts.slice(page * GRID_PAGE, (page + 1) * GRID_PAGE);
+          return (
+            <>
+              {totalGridPages > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>← Prev</button>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>{page * GRID_PAGE + 1}–{Math.min((page + 1) * GRID_PAGE, filteredRepProducts.length)} of {filteredRepProducts.length}</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.min(totalGridPages - 1, p + 1))} disabled={page === totalGridPages - 1}>Next →</button>
                 </div>
-                <div className="prod-grid" style={{ marginBottom: 0 }}>
-                  {sorted.map(p => {
-                    const availStock = getAvailableStock(p);
-                    const clean = p.name.replace(` (${repWarehouse})`, '');
-                    const variant = clean.slice(brand.length).trim() || clean;
-                    return (
-                      <div
-                        key={p.id}
-                        className={`prod-card${selected?.id === p.id ? ' selected' : ''}${availStock === 0 ? ' disabled' : ''}`}
-                        onClick={() => availStock > 0 && handleSelectProduct(p)}
-                        style={{ cursor: availStock > 0 ? 'pointer' : 'not-allowed' }}
-                      >
-                        <div className="prod-name">{variant}</div>
-                        <div className="prod-price">{fmt(p.sellPrice)}/box</div>
-                        <div className="prod-stock">
-                          {availStock > 0 ? `${availStock.toLocaleString()} avail` : 'Out of stock'}
-                        </div>
-                        <div className="bar-bg">
-                          <div className="bar-fill" style={{ width: Math.min(100, (availStock / (p.expectedQty || 500)) * 100) + '%', background: availStock > 0 ? 'var(--green3)' : '#d0ccc4' }}></div>
-                        </div>
+              )}
+              <div className="prod-grid">
+                {filteredRepProducts.length === 0 && (
+                  <div style={{ gridColumn: '1/-1', fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>No products match.</div>
+                )}
+                {gridProducts.map(p => {
+                  const availStock = getAvailableStock(p);
+                  return (
+                    <div
+                      key={p.id}
+                      className={`prod-card${selected?.id === p.id ? ' selected' : ''}${availStock === 0 ? ' disabled' : ''}`}
+                      onClick={() => availStock > 0 && handleSelectProduct(p)}
+                      style={{ cursor: availStock > 0 ? 'pointer' : 'not-allowed' }}
+                    >
+                      <div className="prod-name">{p.name.replace(` (${repWarehouse})`, '')}</div>
+                      <div className="prod-price">{fmt(p.sellPrice)}/box</div>
+                      <div className="prod-stock">
+                        {availStock > 0 ? `${availStock.toLocaleString()} available` : 'Out of stock'}
                       </div>
-                    );
-                  })}
-                </div>
+                      <div className="bar-bg">
+                        <div className="bar-fill" style={{ width: Math.min(100, (availStock / (p.expectedQty || 500)) * 100) + '%', background: 'var(--green3)' }}></div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          });
+              {totalGridPages > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 4, gap: 8 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>← Prev</button>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Page {page + 1} of {totalGridPages}</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => Math.min(totalGridPages - 1, p + 1))} disabled={page === totalGridPages - 1}>Next →</button>
+                </div>
+              )}
+            </>
+          );
         })()}
 
         {selected && (
