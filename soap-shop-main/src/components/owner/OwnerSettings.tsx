@@ -68,6 +68,18 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
     setTimeout(() => setSettingsMsg(""), 2000);
   };
 
+  const toggleRepLock = (id: string) => {
+    const rep = data.reps.find(r => r.id === id);
+    if (!rep) return;
+    const isLocking = rep.lockedDate !== today();
+    const newReps = data.reps.map(r => r.id === id ? { ...r, lockedDate: isLocking ? today() : null } : r);
+    let nd = { ...data, reps: newReps };
+    nd = addAudit(nd, isLocking ? "REP_LOCKED" : "REP_UNLOCKED", `${isLocking ? 'Locked' : 'Unlocked'} rep: ${rep.name}`, "OWNER");
+    save(nd);
+    setSettingsMsg(isLocking ? `🔒 ${rep.name} locked for today` : `🔓 ${rep.name} unlocked`);
+    setTimeout(() => setSettingsMsg(""), 2000);
+  };
+
   // FIX 3: Two-step confirmation before removing rep
   const removeRep = (id: string) => {
     const rep = data.reps.find(r => r.id === id);
@@ -213,22 +225,33 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
       <div className="card">
         <div className="card-title">👥 Sales Reps</div>
         {data.reps.length === 0 && <div className="empty" style={{ padding: "12px 0" }}>No reps added yet.</div>}
-        {data.reps.map(r => (
-          <div key={r.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-            <div className="row">
-              <span style={{ fontWeight: 600 }}>👤 {r.name} <span className={`badge ${r.warehouse === 'JLY' ? 'badge-blue' : 'badge-green'}`}>{r.warehouse ?? 'OWD'}</span></span>
-              {removeRepConfirmId === r.id ? (
+        {data.reps.map(r => {
+          const isLocked = r.lockedDate === today();
+          return (
+            <div key={r.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
+              <div className="row">
+                <span style={{ fontWeight: 600 }}>
+                  👤 {r.name} <span className={`badge ${r.warehouse === 'JLY' ? 'badge-blue' : 'badge-green'}`}>{r.warehouse ?? 'OWD'}</span>
+                  {isLocked && <span className="badge badge-red">🔒 Locked</span>}
+                </span>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <span style={{ fontSize: 12, color: "var(--red)", fontWeight: 600 }}>Remove?</span>
-                  <button className="btn btn-red btn-sm" onClick={() => removeRep(r.id)}>Yes</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setRemoveRepConfirmId(null)}>No</button>
+                  <button className={`btn btn-sm ${isLocked ? 'btn-ghost' : 'btn-red'}`} onClick={() => toggleRepLock(r.id)}>
+                    {isLocked ? '🔓 Unlock' : '🔒 Lock for Today'}
+                  </button>
+                  {removeRepConfirmId === r.id ? (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontSize: 12, color: "var(--red)", fontWeight: 600 }}>Remove?</span>
+                      <button className="btn btn-red btn-sm" onClick={() => removeRep(r.id)}>Yes</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setRemoveRepConfirmId(null)}>No</button>
+                    </div>
+                  ) : (
+                    <button className="btn btn-red btn-sm" onClick={() => setRemoveRepConfirmId(r.id)}>Remove</button>
+                  )}
                 </div>
-              ) : (
-                <button className="btn btn-red btn-sm" onClick={() => setRemoveRepConfirmId(r.id)}>Remove</button>
-              )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         <div className="divider" />
 

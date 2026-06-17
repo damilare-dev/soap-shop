@@ -117,6 +117,9 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
   const maxDiscount = data.maxDiscountPct ?? 15;
   const activeSales = data.sales.filter(s => !s.voided);
   const todaySales = activeSales.filter(s => s.date === today() && s.repId === rep.id);
+  // Read the live rep record (not the stale prop captured at login) so an owner-applied lock takes effect immediately
+  const liveRep = data.reps.find(r => r.id === rep.id) ?? rep;
+  const lockedToday = liveRep.lockedDate === today();
   // Defensive: if warehouse missing on rep object, try to infer from rep name or default to OWD
   const repWarehouse: 'OWD' | 'JLY' = (rep.warehouse === 'JLY') ? 'JLY' : (rep.warehouse === 'OWD' ? 'OWD' : 'OWD');
   const warehouseTag = `(${repWarehouse})`;
@@ -153,6 +156,7 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
   };
 
   const addToCart = () => {
+    if (lockedToday) return setFormAlert('Your sales day has been closed by the owner. Contact them if this is a mistake.');
     if (!selected) return setFormAlert('Please select a product first.');
     if (!qty || +qty <= 0) return setFormAlert('Please enter a valid quantity.');
     if (+qty % 0.5 !== 0) return setFormAlert('Quantity must be in whole or half boxes (e.g. 1, 1.5, 2).');
@@ -206,6 +210,7 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
   };
 
   const confirmAllSales = () => {
+    if (lockedToday) return setCartAlert('Your sales day has been closed by the owner. Contact them if this is a mistake.');
     if (cart.length === 0) return setCartAlert('Cart is empty.');
 
     let nd = { ...data };
@@ -401,6 +406,9 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
       </div>
 
       <div className="content" style={{ paddingBottom: 24 }}>
+        {lockedToday && (
+          <Alert message="🔒 Your sales day has been closed by the owner. You can view today's sales below but cannot record new ones." type="red" onDismiss={() => {}} />
+        )}
         {repProducts.filter(p => p.stock > 0).length === 0 && (
           <Alert message="No products in stock. Ask owner to record a delivery." type="gold" onDismiss={() => {}} />
         )}

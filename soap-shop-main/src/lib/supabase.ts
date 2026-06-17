@@ -12,6 +12,8 @@ create table if not exists reps (
   id text primary key,
   name text not null,
   pin_hash text not null,
+  warehouse text default 'OWD',
+  locked_date text,
   created_at timestamptz default now()
 );
 

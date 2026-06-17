@@ -9,6 +9,8 @@ const ACTION_LABELS: Record<string, { icon: string; color: string }> = {
   PIN_CHANGE:   { icon: '🔐', color: '#6b3fa0' },
   REP_ADDED:    { icon: '👤', color: '#1a3d2b' },
   REP_REMOVED:  { icon: '👤', color: '#c0392b' },
+  REP_LOCKED:   { icon: '🔒', color: '#c0392b' },
+  REP_UNLOCKED: { icon: '🔓', color: '#1a3d2b' },
   PRODUCT_ADDED:   { icon: '🛁', color: '#1a3d2b' },
   PRODUCT_REMOVED: { icon: '🛁', color: '#c0392b' },
   STOCK_ADJUST:    { icon: '🔢', color: '#1a5c8a' },

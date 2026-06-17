@@ -52,6 +52,7 @@ export function useAppData() {
         reps: (reps.data ?? []).map((r: any) => ({
           id: r.id, name: r.name, pin: r.pin_hash,
           warehouse: (r.warehouse === 'OWD' || r.warehouse === 'JLY') ? r.warehouse : 'OWD' as const,
+          lockedDate: r.locked_date ?? null,
         })),
         products: (products.data ?? []).map((p: any) => ({
           id: p.id, name: p.name, schedule: p.schedule,
@@ -166,7 +167,7 @@ export function useAppData() {
     }
     if (next.reps.length) {
       upserts.push(
-        supabase.from('reps').upsert(next.reps.map(r => ({ id: r.id, name: r.name, pin_hash: r.pin, warehouse: r.warehouse ?? 'OWD' })))
+        supabase.from('reps').upsert(next.reps.map(r => ({ id: r.id, name: r.name, pin_hash: r.pin, warehouse: r.warehouse ?? 'OWD', locked_date: r.lockedDate ?? null })))
       );
     }
     if (next.products.length) {

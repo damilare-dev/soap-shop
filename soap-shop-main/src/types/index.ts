@@ -13,6 +13,7 @@ export type SalesRep = {
   name: string;
   pin: string;
   warehouse: 'OWD' | 'JLY';
+  lockedDate?: string | null; // YYYY-MM-DD; rep is blocked from new sales on this date
 };
 
 export type Delivery = {
