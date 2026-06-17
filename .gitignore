@@ -1,0 +1,5 @@
+# Local Netlify folder
+.netlify
+
+# Accidental nested project copy
+soap-shop-main/soap-shop-main/
