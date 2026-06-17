@@ -155,16 +155,16 @@ export default function App() {
     return { ...currentData, auditLog: [...currentData.auditLog, entry] };
   };
 
-  const [hideOfflineBanner, setHideOfflineBanner] = useState<boolean>(() => {
-    try { return localStorage.getItem('hideOfflineBanner') === '1'; } catch { return false; }
-  });
+  // Session-only: a dismissal here must not persist past this page load, so a real
+  // outage keeps reappearing on every fresh load instead of going silent forever.
+  const [hideOfflineBanner, setHideOfflineBanner] = useState(false);
 
   const offlineBanner = !cloudEnabled && !hideOfflineBanner ? (
     <div className="alert alert-blue" style={{ margin: "16px auto", maxWidth: 640 }}>
       <div style={{ flex: 1 }}>Cloud unavailable. Offline mode is active and changes are stored locally.</div>
       <button
         aria-label="Dismiss cloud banner"
-        onClick={() => { setHideOfflineBanner(true); try { localStorage.setItem('hideOfflineBanner', '1'); } catch {} }}
+        onClick={() => setHideOfflineBanner(true)}
         style={{ marginLeft: 12, background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 16 }}
       >
         ✕
