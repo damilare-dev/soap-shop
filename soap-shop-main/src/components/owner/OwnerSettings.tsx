@@ -24,6 +24,7 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
   const [repErr, setRepErr] = useState<string>("");
   const [repWarehouse, setRepWarehouse] = useState<'OWD' | 'JLY'>('OWD');
   const [prod, setProd] = useState({ name: "", costPrice: "", sellPrice: "", expectedQty: "", schedule: "monthly" });
+  const [prodWarehouse, setProdWarehouse] = useState<'OWD' | 'JLY'>('OWD');
   const [settingsMsg, setSettingsMsg] = useState<string>("");
   const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
   // FIX 3: Track which rep is being confirmed for deletion
@@ -99,11 +100,15 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
     // FIX 5: Warn if sell price is lower than cost price
     if (+prod.sellPrice < +prod.costPrice) return setSettingsMsg("⚠ Sell price is lower than cost price — check values.");
 
-    const newProd = { id: uid(), ...prod, costPrice: +prod.costPrice, sellPrice: +prod.sellPrice, expectedQty: +prod.expectedQty || 500, stock: 0 };
+    // Products are warehouse-scoped by a "(OWD)"/"(JLY)" suffix in the name (see RepApp.tsx's rep-side filter) —
+    // strip any tag the owner typed by hand before appending the one picked from the dropdown.
+    const taggedName = `${prod.name.trim().replace(/ \((OWD|JLY)\)$/, '')} (${prodWarehouse})`;
+    const newProd = { id: uid(), ...prod, name: taggedName, costPrice: +prod.costPrice, sellPrice: +prod.sellPrice, expectedQty: +prod.expectedQty || 500, stock: 0 };
     let nd = { ...data, products: [...data.products, newProd] };
-    nd = addAudit(nd, "PRODUCT_ADDED", `New product: ${prod.name}`, "OWNER");
+    nd = addAudit(nd, "PRODUCT_ADDED", `New product: ${taggedName}`, "OWNER");
     save(nd);
     setProd({ name: "", costPrice: "", sellPrice: "", expectedQty: "", schedule: "monthly" });
+    setProdWarehouse('OWD');
     setSettingsMsg("✓ Product added");
     setTimeout(() => setSettingsMsg(""), 2000);
   };
@@ -387,6 +392,13 @@ export default function OwnerSettings({ data, save, addAudit }: OwnerSettingsPro
         <div className="fg">
           <label className="flabel">Product Name *</label>
           <input className="finput" value={prod.name} onChange={e => { sp("name", e.target.value); setSettingsMsg(""); }} placeholder="E.g., Sunlight Soap" />
+        </div>
+        <div className="fg">
+          <label className="flabel">Warehouse</label>
+          <select className="fselect" value={prodWarehouse} onChange={e => setProdWarehouse(e.target.value as 'OWD' | 'JLY')}>
+            <option value="OWD">Owode (OWD)</option>
+            <option value="JLY">Jaleyemi (JLY)</option>
+          </select>
         </div>
         <div className="two-col">
           <div className="fg">
