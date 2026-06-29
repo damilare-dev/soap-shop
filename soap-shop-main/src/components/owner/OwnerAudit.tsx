@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { StateData } from '../../types';
+import { today } from '../../lib/utils';
 
 const ACTION_LABELS: Record<string, { icon: string; color: string }> = {
   SALE:         { icon: '🛒', color: '#1a3d2b' },
@@ -24,6 +25,14 @@ export default function OwnerAudit({ data }: { data: StateData }) {
   const PAGE_SIZE = 20;
 
   const allLogs = [...data.auditLog].sort((a, b) => b.ts.localeCompare(a.ts));
+
+  // Voided sales whose void happened today, grouped by the rep who made the original sale.
+  // Owner-made Quick/Detailed sales already carry repName "Owner", so they fall into their own row.
+  const voidsByRep = new Map<string, number>();
+  data.sales
+    .filter(s => s.voided && s.voidedAt?.slice(0, 10) === today())
+    .forEach(s => voidsByRep.set(s.repName, (voidsByRep.get(s.repName) ?? 0) + 1));
+  const voidRows = Array.from(voidsByRep.entries()).sort((a, b) => b[1] - a[1]);
 
   const actors = ['ALL', ...Array.from(new Set(allLogs.map(e => e.actor)))];
   const actionTypes = ['ALL', ...Array.from(new Set(allLogs.map(e => e.action)))];
@@ -67,6 +76,26 @@ export default function OwnerAudit({ data }: { data: StateData }) {
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.label}</div>
           </div>
         ))}
+      </div>
+
+      <div className="card">
+        <div className="card-title">🚫 Voids Today by Rep</div>
+        {voidRows.length === 0 ? (
+          <div style={{ textAlign: 'center', color: 'var(--muted)', padding: '12px 0', fontSize: 13 }}>No voided sales today.</div>
+        ) : (
+          voidRows.map(([repName, count]) => (
+            <div key={repName} style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '10px 0', borderBottom: '1px solid var(--border)',
+            }}>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>{repName}</span>
+              <span style={{
+                fontFamily: 'var(--font-m)', fontWeight: 700, fontSize: 15,
+                color: count >= 3 ? 'var(--red)' : 'var(--green2)',
+              }}>{count} void{count === 1 ? '' : 's'}</span>
+            </div>
+          ))
+        )}
       </div>
 
       <div className="card">

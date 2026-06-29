@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Product, QuickSaleProps, Sale } from '../types';
 import { uid, today, nowTime, fmt } from '../lib/utils';
 import Alert from './Alert';
@@ -97,6 +97,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-b);font-size:
 .qs-session-qty{font-family:var(--font-m);color:var(--green2);font-size:13px;margin-top:2px;}
 .qs-minus{width:40px;height:40px;border-radius:50%;border:1.5px solid var(--border);background:var(--white);font-size:20px;font-weight:700;cursor:pointer;flex-shrink:0;}
 .qs-minus:hover{border-color:var(--red);color:var(--red);}
+.qs-minus:disabled{opacity:.35;cursor:not-allowed;}
+.qs-minus:disabled:hover{border-color:var(--border);color:inherit;}
+.qs-void-hint{font-size:11px;color:var(--muted);margin:-8px 0 12px;}
 @media(max-width:500px){
  .qs-grid{grid-template-columns:repeat(2,1fr);}
  .content{padding:20px 14px 130px;}
@@ -121,15 +124,34 @@ const clampQty = (n: number, stock: number): number => {
 
 const formatQty = (n: number): string => (n % 1 === 0 ? String(n) : n.toFixed(1));
 
+// Reps can only self-void a Quick Sale within this window of recording it; after that the
+// owner has to do it. Tracked purely in component memory — never persisted — alongside
+// recentSaleIds, so it never touches the Sale/StateData shape.
+const VOID_WINDOW_MS = 120_000;
+
 export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetailed, addAudit }: QuickSaleProps) {
   const [search, setSearch] = useState('');
   const [recentSaleIds, setRecentSaleIds] = useState<string[]>([]);
+  const [saleTimestamps, setSaleTimestamps] = useState<Record<string, number>>({});
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [banner, setBanner] = useState<string>('');
   const [blockedAlert, setBlockedAlert] = useState('');
   const [qtyPanelProduct, setQtyPanelProduct] = useState<Product | null>(null);
   const [qtyValue, setQtyValue] = useState(1);
   const [qtyText, setQtyText] = useState('1');
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Ticks once a second so the undo controls disable themselves the moment a sale's
+  // 2-minute void window elapses, without needing another interaction to trigger it.
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const canVoid = (saleId: string) => {
+    const ts = saleTimestamps[saleId];
+    return ts !== undefined && nowTick - ts <= VOID_WINDOW_MS;
+  };
 
   // Read the live rep record so an owner-applied lock takes effect immediately, same as the detailed flow.
   const liveRep = data.reps.find(r => r.id === rep.id) ?? rep;
@@ -216,6 +238,7 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
     save(nd);
 
     setRecentSaleIds(ids => [...ids, sale.id]);
+    setSaleTimestamps(ts => ({ ...ts, [sale.id]: Date.now() }));
     setBlockedAlert('');
     showBanner(`Recorded: ${displayName(product)}${qty !== 1 ? ` ×${qty}` : ''}`);
     if (navigator.vibrate) navigator.vibrate(40);
@@ -260,13 +283,17 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
 
   const voidSessionSale = (saleId: string) => {
     const s = data.sales.find(x => x.id === saleId);
-    setRecentSaleIds(ids => ids.filter(id => id !== saleId));
-    if (!s || s.voided) return;
+    if (!s || s.voided) {
+      setRecentSaleIds(ids => ids.filter(id => id !== saleId));
+      return;
+    }
+    if (!canVoid(saleId)) return; // past the 2-minute self-void window — rep can no longer undo this one
 
+    setRecentSaleIds(ids => ids.filter(id => id !== saleId));
     const newProducts = data.products.map(p => p.id === s.productId ? { ...p, stock: p.stock + s.qty } : p);
     const newSales = data.sales.map(x => x.id === saleId ? { ...x, voided: true, voidedBy: rep.name, voidedAt: new Date().toISOString() } : x);
     let nd = { ...data, sales: newSales, products: newProducts };
-    nd = addAudit(nd, 'VOID', `Sale voided: ${s.qty} × ${s.productName}`, rep.name);
+    nd = addAudit(nd, 'VOID', `${rep.name} voided ${s.qty} × ${s.productName} at ${nowTime()}`, rep.name);
     save(nd);
   };
 
@@ -275,14 +302,17 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
     voidSessionSale(recentSaleIds[recentSaleIds.length - 1]);
   };
 
-  const removeOneFromGroup = (productId: string) => {
+  const findRemovableSaleId = (productId: string): string | undefined => {
     for (let i = recentSaleIds.length - 1; i >= 0; i--) {
       const s = data.sales.find(x => x.id === recentSaleIds[i]);
-      if (s && s.productId === productId && !s.voided) {
-        voidSessionSale(s.id);
-        return;
-      }
+      if (s && s.productId === productId && !s.voided) return s.id;
     }
+    return undefined;
+  };
+
+  const removeOneFromGroup = (productId: string) => {
+    const targetId = findRemovableSaleId(productId);
+    if (targetId) voidSessionSale(targetId);
   };
 
   const renderProductButton = (p: Product) => {
@@ -378,23 +408,32 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
           {azProducts.map(renderProductButton)}
         </div>
 
-        {sessionGroups.length > 0 && (
-          <div className="card" style={{ marginTop: 16 }}>
-            <div className="card-title">🧾 Just Recorded</div>
-            {sessionGroups.map(g => (
-              <div key={g.productId} className="qs-session-row">
-                <div>
-                  <div className="qs-session-name">{g.productName.replace(` (${repWarehouse})`, '')}</div>
-                  <div className="qs-session-qty">{g.qty} box{g.qty === 1 ? '' : 'es'}</div>
-                </div>
-                <button className="qs-minus" aria-label={`Remove one ${g.productName}`} onClick={() => removeOneFromGroup(g.productId)}>−</button>
-              </div>
-            ))}
-            <button className="btn btn-ghost btn-full" style={{ marginTop: 14 }} onClick={undoLastSale}>
-              ↺ Undo Last Sale
-            </button>
-          </div>
-        )}
+        {sessionGroups.length > 0 && (() => {
+          const lastSaleId = recentSaleIds[recentSaleIds.length - 1];
+          const canUndoLast = lastSaleId !== undefined && canVoid(lastSaleId);
+          return (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-title">🧾 Just Recorded</div>
+              <div className="qs-void-hint">You can undo a sale within 2 minutes of recording it. After that, ask the owner to void it.</div>
+              {sessionGroups.map(g => {
+                const targetId = findRemovableSaleId(g.productId);
+                const canRemove = targetId !== undefined && canVoid(targetId);
+                return (
+                  <div key={g.productId} className="qs-session-row">
+                    <div>
+                      <div className="qs-session-name">{g.productName.replace(` (${repWarehouse})`, '')}</div>
+                      <div className="qs-session-qty">{g.qty} box{g.qty === 1 ? '' : 'es'}</div>
+                    </div>
+                    <button className="qs-minus" aria-label={`Remove one ${g.productName}`} onClick={() => removeOneFromGroup(g.productId)} disabled={!canRemove}>−</button>
+                  </div>
+                );
+              })}
+              <button className="btn btn-ghost btn-full" style={{ marginTop: 14 }} onClick={undoLastSale} disabled={!canUndoLast}>
+                ↺ Undo Last Sale
+              </button>
+            </div>
+          );
+        })()}
       </div>
     </div>
 

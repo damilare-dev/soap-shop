@@ -271,7 +271,8 @@ export default function OwnerQuickSale({ data, save, addAudit }: OwnerQuickSaleP
     const newProducts = data.products.map(p => p.id === s.productId ? { ...p, stock: p.stock + s.qty } : p);
     const newSales = data.sales.map(x => x.id === saleId ? { ...x, voided: true, voidedBy: OWNER_REP_NAME, voidedAt: new Date().toISOString() } : x);
     let nd = { ...data, sales: newSales, products: newProducts };
-    nd = addAudit(nd, 'VOID', `Sale voided: ${s.qty} × ${s.productName}`, OWNER_REP_NAME);
+    // Owner can void any of their Quick Sales any time — no 2-minute window like reps have.
+    nd = addAudit(nd, 'VOID', `${OWNER_REP_NAME} voided ${s.qty} × ${s.productName} at ${nowTime()}`, OWNER_REP_NAME);
     save(nd);
   };
 
