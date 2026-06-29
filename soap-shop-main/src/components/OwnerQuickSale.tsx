@@ -25,6 +25,25 @@ const STYLE = `
 .oqs-name{font-family:var(--font-h);font-size:17px;font-weight:700;color:var(--text);line-height:1.25;}
 .oqs-price{font-family:var(--font-m);font-size:15px;color:var(--green2);font-weight:600;margin-top:8px;}
 .oqs-stock{font-size:11.5px;color:var(--muted);margin-top:2px;}
+.oqs-qtybtn{margin-top:12px;padding:8px;border-radius:8px;border:1.5px solid var(--border);background:var(--gold-light);color:#7a5c00;font-family:var(--font-b);font-size:12px;font-weight:700;cursor:pointer;text-align:center;width:100%;}
+.oqs-qtybtn:hover{border-color:var(--gold);}
+.oqs-qtybtn:active{transform:scale(.96);}
+.oqs-qtybtn:focus-visible{outline:3px solid var(--gold);outline-offset:2px;}
+.oqs-modal-backdrop{position:fixed;inset:0;background:rgba(26,61,43,.55);display:flex;align-items:center;justify-content:center;padding:20px;z-index:2000;}
+.oqs-modal{background:var(--white);border-radius:var(--radius);padding:28px 24px;max-width:380px;width:100%;box-shadow:var(--shadow-lg);}
+.oqs-modal-title{font-family:var(--font-h);font-size:21px;font-weight:700;color:var(--green);margin-bottom:4px;}
+.oqs-modal-sub{font-size:13px;color:var(--muted);margin-bottom:22px;}
+.oqs-stepper{display:flex;align-items:center;justify-content:center;gap:18px;margin-bottom:22px;}
+.oqs-stepper-btn{width:56px;height:56px;border-radius:50%;border:2px solid var(--border);background:var(--white);font-size:28px;font-weight:700;color:var(--green);cursor:pointer;flex-shrink:0;}
+.oqs-stepper-btn:hover{border-color:var(--green2);}
+.oqs-stepper-btn:active{transform:scale(.94);}
+.oqs-stepper-btn:disabled{opacity:.35;cursor:not-allowed;}
+.oqs-stepper-btn:focus-visible{outline:3px solid var(--gold);outline-offset:2px;}
+.oqs-stepper-value{font-family:var(--font-m);font-size:28px;font-weight:700;min-width:80px;text-align:center;}
+.oqs-modal-total{text-align:center;background:var(--green-light);border-radius:var(--radius-sm);padding:14px;margin-bottom:22px;}
+.oqs-modal-total-label{font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600;letter-spacing:.06em;}
+.oqs-modal-total-value{font-family:var(--font-m);font-size:24px;font-weight:700;color:var(--green2);margin-top:4px;}
+.oqs-modal-actions{display:flex;gap:10px;}
 .oqs-session-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);gap:10px;}
 .oqs-session-name{font-weight:600;font-size:15px;}
 .oqs-session-qty{font-family:var(--font-m);color:var(--green2);font-size:13px;margin-top:2px;}
@@ -33,14 +52,19 @@ const STYLE = `
 @media(max-width:500px){
  .oqs-grid{grid-template-columns:repeat(2,1fr);}
  .oqs-stores{grid-template-columns:repeat(2,1fr);}
+ .oqs-stepper-btn{width:48px;height:48px;font-size:24px;}
 }
 `;
+
+const QTY_STEP = 0.5;
 
 export default function OwnerQuickSale({ data, save, addAudit }: OwnerQuickSaleProps) {
   const [storeTag, setStoreTag] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [recentSaleIds, setRecentSaleIds] = useState<string[]>([]);
   const [banner, setBanner] = useState('');
+  const [qtyPanelProduct, setQtyPanelProduct] = useState<Product | null>(null);
+  const [qtyValue, setQtyValue] = useState(1);
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Stores are derived from the "(TAG)" suffix already used on every product name —
@@ -57,6 +81,7 @@ export default function OwnerQuickSale({ data, save, addAudit }: OwnerQuickSaleP
     setSearch('');
     setRecentSaleIds([]);
     setBanner('');
+    setQtyPanelProduct(null);
   };
 
   if (!storeTag) {
@@ -123,21 +148,22 @@ export default function OwnerQuickSale({ data, save, addAudit }: OwnerQuickSaleP
     bannerTimer.current = setTimeout(() => setBanner(''), 1800);
   };
 
-  const recordSale = (product: Product) => {
-    if (product.stock <= 0) return;
+  const recordSale = (product: Product, qty: number = 1) => {
+    if (qty <= 0 || product.stock < qty) return;
 
     const price = product.sellPrice;
+    const total = price * qty;
     const sale: Sale = {
       id: uid(),
       productId: product.id,
       productName: product.name,
       repId: OWNER_REP_ID,
       repName: OWNER_REP_NAME,
-      qty: 1,
+      qty,
       pricePerBox: price,
       standardPrice: price,
-      expectedCash: price,
-      cashCollected: price,
+      expectedCash: total,
+      cashCollected: total,
       discrepancy: 0,
       note: '',
       date: today(),
@@ -150,15 +176,36 @@ export default function OwnerQuickSale({ data, save, addAudit }: OwnerQuickSaleP
 
     let nd = {
       ...data,
-      products: data.products.map(p => p.id === product.id ? { ...p, stock: p.stock - 1 } : p),
+      products: data.products.map(p => p.id === product.id ? { ...p, stock: p.stock - qty } : p),
       sales: [...data.sales, sale],
     };
-    nd = addAudit(nd, 'SALE', `${OWNER_REP_NAME} sold 1 × ${product.name} — collected ${fmt(price)} (expected ${fmt(price)})`, OWNER_REP_NAME);
+    nd = addAudit(nd, 'SALE', `${OWNER_REP_NAME} sold ${qty} × ${product.name} — collected ${fmt(total)} (expected ${fmt(total)})`, OWNER_REP_NAME);
     save(nd);
 
     setRecentSaleIds(ids => [...ids, sale.id]);
-    showBanner(`Recorded: ${displayName(product)}`);
+    showBanner(`Recorded: ${displayName(product)}${qty !== 1 ? ` ×${qty}` : ''}`);
     if (navigator.vibrate) navigator.vibrate(40);
+  };
+
+  const openQtyPanel = (p: Product) => {
+    setQtyPanelProduct(p);
+    setQtyValue(p.stock >= 1 ? 1 : p.stock);
+  };
+
+  const stepQty = (delta: number) => {
+    if (!qtyPanelProduct) return;
+    setQtyValue(v => {
+      const next = v + delta;
+      if (next < QTY_STEP) return QTY_STEP;
+      if (next > qtyPanelProduct.stock) return qtyPanelProduct.stock;
+      return next;
+    });
+  };
+
+  const confirmQtySale = () => {
+    if (!qtyPanelProduct) return;
+    recordSale(qtyPanelProduct, qtyValue);
+    setQtyPanelProduct(null);
   };
 
   const voidSessionSale = (saleId: string) => {
@@ -191,18 +238,36 @@ export default function OwnerQuickSale({ data, save, addAudit }: OwnerQuickSaleP
   const renderProductButton = (p: Product) => {
     const outOfStock = p.stock <= 0;
     return (
-      <button
+      <div
         key={p.id}
         className={`oqs-btn${outOfStock ? ' out' : ''}`}
-        disabled={outOfStock}
-        onClick={() => recordSale(p)}
+        role="button"
+        tabIndex={outOfStock ? -1 : 0}
+        aria-disabled={outOfStock}
+        style={{ cursor: outOfStock ? 'not-allowed' : 'pointer' }}
+        onClick={() => { if (!outOfStock) recordSale(p); }}
+        onKeyDown={e => {
+          if (outOfStock) return;
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); recordSale(p); }
+        }}
       >
-        <div className="oqs-name">{displayName(p)}</div>
         <div>
-          <div className="oqs-price">{fmt(p.sellPrice)}/box</div>
-          <div className="oqs-stock">{outOfStock ? 'Out of stock' : `${p.stock.toLocaleString()} left`}</div>
+          <div className="oqs-name">{displayName(p)}</div>
+          <div>
+            <div className="oqs-price">{fmt(p.sellPrice)}/box</div>
+            <div className="oqs-stock">{outOfStock ? 'Out of stock' : `${p.stock.toLocaleString()} left`}</div>
+          </div>
         </div>
-      </button>
+        {!outOfStock && (
+          <button
+            type="button"
+            className="oqs-qtybtn"
+            onClick={e => { e.stopPropagation(); openQtyPanel(p); }}
+          >
+            📦 Choose qty
+          </button>
+        )}
+      </div>
     );
   };
 
@@ -269,6 +334,31 @@ export default function OwnerQuickSale({ data, save, addAudit }: OwnerQuickSaleP
           <button className="btn btn-ghost btn-full" style={{ marginTop: 14 }} onClick={undoLastSale}>
             ↺ Undo Last Sale
           </button>
+        </div>
+      )}
+
+      {qtyPanelProduct && (
+        <div className="oqs-modal-backdrop" onClick={() => setQtyPanelProduct(null)}>
+          <div className="oqs-modal" onClick={e => e.stopPropagation()}>
+            <div className="oqs-modal-title">{displayName(qtyPanelProduct)}</div>
+            <div className="oqs-modal-sub">{storeTag} · {fmt(qtyPanelProduct.sellPrice)}/box · {qtyPanelProduct.stock.toLocaleString()} in stock</div>
+
+            <div className="oqs-stepper">
+              <button className="oqs-stepper-btn" aria-label="Decrease quantity" disabled={qtyValue <= QTY_STEP} onClick={() => stepQty(-QTY_STEP)}>−</button>
+              <div className="oqs-stepper-value">{qtyValue % 1 === 0 ? qtyValue : qtyValue.toFixed(1)}</div>
+              <button className="oqs-stepper-btn" aria-label="Increase quantity" disabled={qtyValue >= qtyPanelProduct.stock} onClick={() => stepQty(QTY_STEP)}>+</button>
+            </div>
+
+            <div className="oqs-modal-total">
+              <div className="oqs-modal-total-label">Total</div>
+              <div className="oqs-modal-total-value">{fmt(qtyValue * qtyPanelProduct.sellPrice)}</div>
+            </div>
+
+            <div className="oqs-modal-actions">
+              <button className="btn btn-ghost btn-full btn-lg" onClick={() => setQtyPanelProduct(null)}>Cancel</button>
+              <button className="btn btn-green btn-full btn-lg" onClick={confirmQtySale}>Confirm Sale</button>
+            </div>
+          </div>
         </div>
       )}
     </>

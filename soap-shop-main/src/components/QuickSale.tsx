@@ -70,6 +70,25 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-b);font-size:
 .qs-name{font-family:var(--font-h);font-size:17px;font-weight:700;color:var(--text);line-height:1.25;}
 .qs-price{font-family:var(--font-m);font-size:15px;color:var(--green2);font-weight:600;margin-top:8px;}
 .qs-stock{font-size:11.5px;color:var(--muted);margin-top:2px;}
+.qs-qtybtn{margin-top:12px;padding:8px;border-radius:8px;border:1.5px solid var(--border);background:var(--gold-light);color:#7a5c00;font-family:var(--font-b);font-size:12px;font-weight:700;cursor:pointer;text-align:center;width:100%;}
+.qs-qtybtn:hover{border-color:var(--gold);}
+.qs-qtybtn:active{transform:scale(.96);}
+.qs-qtybtn:focus-visible{outline:3px solid var(--gold);outline-offset:2px;}
+.qs-modal-backdrop{position:fixed;inset:0;background:rgba(26,61,43,.55);display:flex;align-items:center;justify-content:center;padding:20px;z-index:2000;}
+.qs-modal{background:var(--white);border-radius:var(--radius);padding:28px 24px;max-width:380px;width:100%;box-shadow:var(--shadow-lg);}
+.qs-modal-title{font-family:var(--font-h);font-size:21px;font-weight:700;color:var(--green);margin-bottom:4px;}
+.qs-modal-sub{font-size:13px;color:var(--muted);margin-bottom:22px;}
+.qs-stepper{display:flex;align-items:center;justify-content:center;gap:18px;margin-bottom:22px;}
+.qs-stepper-btn{width:56px;height:56px;border-radius:50%;border:2px solid var(--border);background:var(--white);font-size:28px;font-weight:700;color:var(--green);cursor:pointer;flex-shrink:0;}
+.qs-stepper-btn:hover{border-color:var(--green2);}
+.qs-stepper-btn:active{transform:scale(.94);}
+.qs-stepper-btn:disabled{opacity:.35;cursor:not-allowed;}
+.qs-stepper-btn:focus-visible{outline:3px solid var(--gold);outline-offset:2px;}
+.qs-stepper-value{font-family:var(--font-m);font-size:28px;font-weight:700;min-width:80px;text-align:center;}
+.qs-modal-total{text-align:center;background:var(--green-light);border-radius:var(--radius-sm);padding:14px;margin-bottom:22px;}
+.qs-modal-total-label{font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600;letter-spacing:.06em;}
+.qs-modal-total-value{font-family:var(--font-m);font-size:24px;font-weight:700;color:var(--green2);margin-top:4px;}
+.qs-modal-actions{display:flex;gap:10px;}
 .qs-session-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);gap:10px;}
 .qs-session-name{font-weight:600;font-size:15px;}
 .qs-session-qty{font-family:var(--font-m);color:var(--green2);font-size:13px;margin-top:2px;}
@@ -80,14 +99,19 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-b);font-size:
  .content{padding:20px 14px 130px;}
  .card{padding:16px;}
  .qs-btn{min-height:84px;}
+ .qs-stepper-btn{width:48px;height:48px;font-size:24px;}
 }
 `;
+
+const QTY_STEP = 0.5;
 
 export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetailed, addAudit }: QuickSaleProps) {
   const [search, setSearch] = useState('');
   const [recentSaleIds, setRecentSaleIds] = useState<string[]>([]);
   const [banner, setBanner] = useState<string>('');
   const [blockedAlert, setBlockedAlert] = useState('');
+  const [qtyPanelProduct, setQtyPanelProduct] = useState<Product | null>(null);
+  const [qtyValue, setQtyValue] = useState(1);
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Read the live rep record so an owner-applied lock takes effect immediately, same as the detailed flow.
@@ -139,22 +163,23 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
     bannerTimer.current = setTimeout(() => setBanner(''), 1800);
   };
 
-  const recordSale = (product: Product) => {
+  const recordSale = (product: Product, qty: number = 1) => {
     if (lockedToday) return setBlockedAlert('Your sales day has been closed by the owner. Contact them if this is a mistake.');
-    if (product.stock <= 0) return;
+    if (qty <= 0 || product.stock < qty) return;
 
     const price = product.sellPrice;
+    const total = price * qty;
     const sale: Sale = {
       id: uid(),
       productId: product.id,
       productName: product.name,
       repId: rep.id,
       repName: rep.name,
-      qty: 1,
+      qty,
       pricePerBox: price,
       standardPrice: price,
-      expectedCash: price,
-      cashCollected: price,
+      expectedCash: total,
+      cashCollected: total,
       discrepancy: 0,
       note: '',
       date: today(),
@@ -167,16 +192,37 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
 
     let nd = {
       ...data,
-      products: data.products.map(p => p.id === product.id ? { ...p, stock: p.stock - 1 } : p),
+      products: data.products.map(p => p.id === product.id ? { ...p, stock: p.stock - qty } : p),
       sales: [...data.sales, sale],
     };
-    nd = addAudit(nd, 'SALE', `${rep.name} sold 1 × ${product.name} — collected ${fmt(price)} (expected ${fmt(price)})`, rep.name);
+    nd = addAudit(nd, 'SALE', `${rep.name} sold ${qty} × ${product.name} — collected ${fmt(total)} (expected ${fmt(total)})`, rep.name);
     save(nd);
 
     setRecentSaleIds(ids => [...ids, sale.id]);
     setBlockedAlert('');
-    showBanner(`Recorded: ${displayName(product)}`);
+    showBanner(`Recorded: ${displayName(product)}${qty !== 1 ? ` ×${qty}` : ''}`);
     if (navigator.vibrate) navigator.vibrate(40);
+  };
+
+  const openQtyPanel = (p: Product) => {
+    setQtyPanelProduct(p);
+    setQtyValue(p.stock >= 1 ? 1 : p.stock);
+  };
+
+  const stepQty = (delta: number) => {
+    if (!qtyPanelProduct) return;
+    setQtyValue(v => {
+      const next = v + delta;
+      if (next < QTY_STEP) return QTY_STEP;
+      if (next > qtyPanelProduct.stock) return qtyPanelProduct.stock;
+      return next;
+    });
+  };
+
+  const confirmQtySale = () => {
+    if (!qtyPanelProduct) return;
+    recordSale(qtyPanelProduct, qtyValue);
+    setQtyPanelProduct(null);
   };
 
   const voidSessionSale = (saleId: string) => {
@@ -208,19 +254,38 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
 
   const renderProductButton = (p: Product) => {
     const outOfStock = p.stock <= 0;
+    const disabled = outOfStock || lockedToday;
     return (
-      <button
+      <div
         key={p.id}
         className={`qs-btn${outOfStock ? ' out' : ''}`}
-        disabled={outOfStock || lockedToday}
-        onClick={() => recordSale(p)}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled}
+        style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
+        onClick={() => { if (!disabled) recordSale(p); }}
+        onKeyDown={e => {
+          if (disabled) return;
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); recordSale(p); }
+        }}
       >
-        <div className="qs-name">{displayName(p)}</div>
         <div>
-          <div className="qs-price">{fmt(p.sellPrice)}/box</div>
-          <div className="qs-stock">{outOfStock ? 'Out of stock' : `${p.stock.toLocaleString()} left`}</div>
+          <div className="qs-name">{displayName(p)}</div>
+          <div>
+            <div className="qs-price">{fmt(p.sellPrice)}/box</div>
+            <div className="qs-stock">{outOfStock ? 'Out of stock' : `${p.stock.toLocaleString()} left`}</div>
+          </div>
         </div>
-      </button>
+        {!disabled && (
+          <button
+            type="button"
+            className="qs-qtybtn"
+            onClick={e => { e.stopPropagation(); openQtyPanel(p); }}
+          >
+            📦 Choose qty
+          </button>
+        )}
+      </div>
     );
   };
 
@@ -299,6 +364,31 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
         )}
       </div>
     </div>
+
+    {qtyPanelProduct && (
+      <div className="qs-modal-backdrop" onClick={() => setQtyPanelProduct(null)}>
+        <div className="qs-modal" onClick={e => e.stopPropagation()}>
+          <div className="qs-modal-title">{displayName(qtyPanelProduct)}</div>
+          <div className="qs-modal-sub">{fmt(qtyPanelProduct.sellPrice)}/box · {qtyPanelProduct.stock.toLocaleString()} in stock</div>
+
+          <div className="qs-stepper">
+            <button className="qs-stepper-btn" aria-label="Decrease quantity" disabled={qtyValue <= QTY_STEP} onClick={() => stepQty(-QTY_STEP)}>−</button>
+            <div className="qs-stepper-value">{qtyValue % 1 === 0 ? qtyValue : qtyValue.toFixed(1)}</div>
+            <button className="qs-stepper-btn" aria-label="Increase quantity" disabled={qtyValue >= qtyPanelProduct.stock} onClick={() => stepQty(QTY_STEP)}>+</button>
+          </div>
+
+          <div className="qs-modal-total">
+            <div className="qs-modal-total-label">Total</div>
+            <div className="qs-modal-total-value">{fmt(qtyValue * qtyPanelProduct.sellPrice)}</div>
+          </div>
+
+          <div className="qs-modal-actions">
+            <button className="btn btn-ghost btn-full btn-lg" onClick={() => setQtyPanelProduct(null)}>Cancel</button>
+            <button className="btn btn-green btn-full btn-lg" onClick={confirmQtySale}>Confirm Sale</button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
