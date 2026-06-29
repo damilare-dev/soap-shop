@@ -1,7 +1,16 @@
 import { useState } from 'react';
 import { Product, DetailedSaleProps, Sale } from '../types';
 import { uid, today, nowTime, fmt } from '../lib/utils';
+import { generateReceipt } from '../lib/receipt';
 import Alert from './Alert';
+
+const printSaleReceipt = async (s: Sale) => {
+  if (s.voided) return; // a voided sale can never be reprinted as proof of purchase
+  await generateReceipt({
+    items: [{ productName: s.productName, qty: s.qty, unitPrice: s.cashCollected / s.qty, lineTotal: s.cashCollected }],
+    total: s.cashCollected,
+  });
+};
 
 type CartItem = {
   id: string;
@@ -599,11 +608,14 @@ export default function DetailedSale({ data, save, rep, onLogout, onSwitchToQuic
                   </div>
                   <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>{fmt(s.cashCollected)}</div>
                 </div>
-                {s.edited ? (
-                  <span style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>Owner only</span>
-                ) : (
-                  <button className="btn btn-ghost btn-sm" onClick={() => { setEditingSaleId(s.id); setEditQty(String(s.qty)); setEditCash(String(s.cashCollected)); }}>✏</button>
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { void printSaleReceipt(s); }} title="Print receipt">🧾</button>
+                  {s.edited ? (
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>Owner only</span>
+                  ) : (
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setEditingSaleId(s.id); setEditQty(String(s.qty)); setEditCash(String(s.cashCollected)); }}>✏</button>
+                  )}
+                </div>
               </div>
             ))}
             {totalPages > 1 && (

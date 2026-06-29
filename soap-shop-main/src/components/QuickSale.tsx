@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Product, QuickSaleProps, Sale } from '../types';
 import { uid, today, nowTime, fmt } from '../lib/utils';
+import { generateReceipt, ReceiptItem } from '../lib/receipt';
 import Alert from './Alert';
 
 const STYLE = `
@@ -195,6 +196,29 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
     if (g) g.qty += s.qty;
     else sessionGroups.push({ productId: s.productId, productName: s.productName, qty: s.qty });
   });
+
+  const buildSessionReceiptItems = (): ReceiptItem[] => {
+    const items: ReceiptItem[] = [];
+    sessionSales.forEach(s => {
+      const name = s.productName.replace(` (${repWarehouse})`, '');
+      const existing = items.find(i => i.productName === name);
+      if (existing) {
+        existing.qty += s.qty;
+        existing.lineTotal += s.cashCollected;
+        existing.unitPrice = existing.lineTotal / existing.qty;
+      } else {
+        items.push({ productName: name, qty: s.qty, unitPrice: s.cashCollected / s.qty, lineTotal: s.cashCollected });
+      }
+    });
+    return items;
+  };
+
+  const handleSessionReceipt = async () => {
+    const items = buildSessionReceiptItems();
+    if (items.length === 0) return;
+    const total = items.reduce((sum, i) => sum + i.lineTotal, 0);
+    await generateReceipt({ items, total });
+  };
 
   const showBanner = (msg: string) => {
     setBanner(msg);
@@ -405,9 +429,14 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
                   </div>
                 );
               })}
-              <button className="btn btn-ghost btn-full" style={{ marginTop: 14 }} onClick={undoLastSale} disabled={!canUndoLast}>
-                ↺ Undo Last Sale
-              </button>
+              <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                <button className="btn btn-ghost" style={{ flex: 1 }} onClick={undoLastSale} disabled={!canUndoLast}>
+                  ↺ Undo Last Sale
+                </button>
+                <button className="btn btn-green" style={{ flex: 1 }} onClick={() => { void handleSessionReceipt(); }}>
+                  🧾 Receipt
+                </button>
+              </div>
             </div>
           );
         })()}

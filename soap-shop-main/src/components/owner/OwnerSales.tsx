@@ -1,7 +1,16 @@
-import { OwnerSalesProps } from '../../types';
+import { OwnerSalesProps, Sale } from '../../types';
 import { today, fmt } from '../../lib/utils';
+import { generateReceipt } from '../../lib/receipt';
 import Alert from '../Alert';
 import { useState } from 'react';
+
+const printSaleReceipt = async (s: Sale) => {
+  if (s.voided) return; // a voided sale can never be reprinted as proof of purchase
+  await generateReceipt({
+    items: [{ productName: s.productName, qty: s.qty, unitPrice: s.cashCollected / s.qty, lineTotal: s.cashCollected }],
+    total: s.cashCollected,
+  });
+};
 
 export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
   const [filter, setFilter] = useState<"today" | "week" | "month">("today");
@@ -135,7 +144,10 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
                       </div>
                     </>
                   ) : (
-                    <button className="btn btn-red btn-sm" onClick={() => setVoidConfirmId(s.id)} title="Void this sale">✕</button>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => { void printSaleReceipt(s); }} title="Print receipt">🧾 Receipt</button>
+                      <button className="btn btn-red btn-sm" onClick={() => setVoidConfirmId(s.id)} title="Void this sale">✕</button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -158,11 +170,14 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
             🚫 Voided Records ({voidedFiltered.length}) {showVoided ? "▲" : "▼"}
           </div>
           {showVoided && voidedFiltered.map(s => (
-            <div key={s.id} className="tag-deleted" style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-              <div>{s.productName} · {s.qty} boxes · {s.repName}</div>
-              <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                Voided {s.voidedAt ? new Date(s.voidedAt).toLocaleString("en", { dateStyle: "medium", timeStyle: "short" }) : ""}
+            <div key={s.id} className="tag-deleted" style={{ padding: "8px 0", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div>
+                <div>{s.productName} · {s.qty} boxes · {s.repName}</div>
+                <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                  Voided {s.voidedAt ? new Date(s.voidedAt).toLocaleString("en", { dateStyle: "medium", timeStyle: "short" }) : ""}
+                </div>
               </div>
+              <button className="btn btn-ghost btn-sm" disabled title="Voided sales can't be reprinted as proof of purchase">🧾 Receipt</button>
             </div>
           ))}
         </div>
