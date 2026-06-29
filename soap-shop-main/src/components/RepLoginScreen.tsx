@@ -50,6 +50,9 @@ export default function RepLoginScreen({ reps, onSuccess, onBack }: RepLoginScre
   const [attempts, setAttempts] = useState<number>(0);
   const [locked, setLocked] = useState<boolean>(false);
 
+  // The synthetic 'owner' rep exists only to satisfy sales.rep_id's FK for Quick Sale — never a login option.
+  const visibleReps = reps.filter(r => r.id !== 'owner');
+
   if (!chosen) return (
     <div><style>{STYLE}</style>
     <div className="fullscreen">
@@ -61,7 +64,7 @@ export default function RepLoginScreen({ reps, onSuccess, onBack }: RepLoginScre
           <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>Tap your name</div>
         </div>
         <div className="rep-selector">
-          {reps.map(r => (
+          {visibleReps.map(r => (
             <button key={r.id} onClick={() => setChosen(r)} className="rep-btn">
               <span style={{ fontSize: 28 }}>👤</span>
               <span style={{ fontFamily: "var(--font-h)", fontSize: 17, fontWeight: 600, color: "var(--text)" }}>{r.name}</span>

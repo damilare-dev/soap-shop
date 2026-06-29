@@ -6,6 +6,7 @@ import OwnerSales from './owner/OwnerSales';
 import OwnerReport from './owner/OwnerReport';
 import OwnerSettings from './owner/OwnerSettings';
 import OwnerAudit from './owner/OwnerAudit';
+import OwnerQuickSale from './OwnerQuickSale';
 
 const STYLE = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
@@ -96,9 +97,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-b);font-size:
 `;
 
 export default function OwnerApp({ data, save, onLogout, addAudit }: OwnerAppProps) {
-  const [tab, setTab] = useState<"home" | "delivery" | "sales" | "report" | "audit" | "settings">("home");
-  const TABS: Array<{ id: "home" | "delivery" | "sales" | "report" | "audit" | "settings"; icon: string; label: string }> = [
+  const [tab, setTab] = useState<"home" | "sell" | "delivery" | "sales" | "report" | "audit" | "settings">("home");
+  const TABS: Array<{ id: "home" | "sell" | "delivery" | "sales" | "report" | "audit" | "settings"; icon: string; label: string }> = [
     { id: "home", icon: "🏠", label: "Home" },
+    { id: "sell", icon: "💰", label: "Sell" },
     { id: "delivery", icon: "📦", label: "Delivery" },
     { id: "sales", icon: "📊", label: "Sales" },
     { id: "report", icon: "📈", label: "Report" },
@@ -116,6 +118,7 @@ export default function OwnerApp({ data, save, onLogout, addAudit }: OwnerAppPro
 
       <div className="content">
         {tab === "home" && <OwnerHome data={data} />}
+        {tab === "sell" && <OwnerQuickSale data={data} save={save} addAudit={addAudit} />}
         {tab === "delivery" && <OwnerDelivery data={data} save={save} addAudit={addAudit} />}
         {tab === "sales" && <OwnerSales data={data} save={save} addAudit={addAudit} />}
         {tab === "report" && <OwnerReport data={data} />}

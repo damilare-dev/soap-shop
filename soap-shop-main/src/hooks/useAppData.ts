@@ -1,7 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, cloudEnabled } from '../lib/supabase';
-import { StateData } from '../types';
+import { SalesRep, StateData } from '../types';
 import { applyOWDSeed } from '../lib/seedOWDProducts';
+
+// Quick Sale records owner-made sales under a synthetic rep so sales.rep_id's FK to reps(id) is satisfied.
+// Hidden from staff login (see RepLoginScreen) and never used for PIN auth.
+const OWNER_REP_ID = 'owner';
+
+function ensureOwnerRep(state: StateData): StateData {
+  if (state.reps.some(r => r.id === OWNER_REP_ID)) return state;
+  const ownerRep: SalesRep = { id: OWNER_REP_ID, name: 'Owner', pin: '', warehouse: 'OWD' };
+  return { ...state, reps: [...state.reps, ownerRep] };
+}
 
 const STORAGE_KEY = 'soap-shop-local';
 
@@ -90,21 +100,26 @@ export function useAppData() {
       const local = loadLocal();
       const base = remote ?? local ?? DEFAULT_STATE;
       const seeded = applyOWDSeed(base);
-      setData(seeded);
-      dataRef.current = seeded;
-      saveLocal(seeded);
+      const final = ensureOwnerRep(seeded);
+      setData(final);
+      dataRef.current = final;
+      saveLocal(final);
       setLoading(false);
-      if (seeded !== base && supabase) {
+      if (final !== base && supabase) {
+        const ownerRepAdded = !base.reps.some(r => r.id === OWNER_REP_ID);
         await Promise.allSettled([
           supabase.from('products').upsert(
-            seeded.products.map(p => ({
+            final.products.map(p => ({
               id: p.id, name: p.name, schedule: p.schedule,
               expected_qty: p.expectedQty, cost_price: p.costPrice,
               sell_price: p.sellPrice, stock: p.stock,
             }))
           ),
+          ...(ownerRepAdded ? [
+            supabase.from('reps').upsert([{ id: OWNER_REP_ID, name: 'Owner', pin_hash: '', warehouse: 'OWD', locked_date: null }])
+          ] : []),
           supabase.from('audit_log').insert(
-            seeded.auditLog
+            final.auditLog
               .filter(a => !base.auditLog.some(x => x.id === a.id))
               .map(a => ({ id: a.id, ts: a.ts, action: a.action, detail: a.detail, actor: a.actor }))
           ),

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Product, RepAppProps, Sale } from '../types';
 import { uid, today, nowTime, fmt } from '../lib/utils';
 import Alert from './Alert';
+import QuickSale from './QuickSale';
 
 type CartItem = {
   id: string;
@@ -94,6 +95,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-b);font-size:
 `;
 
 export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppProps) {
+  // Quick Sale is the default — the detailed flow below (cart, negotiation, part-payments) is unchanged and reachable via the toggle.
+  const [mode, setMode] = useState<'quick' | 'detailed'>('quick');
   const [selected, setSelected] = useState<Product | null>(null);
   const [qty, setQty] = useState<string>('');
   const [cash, setCash] = useState<string>('');
@@ -305,6 +308,19 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
     setEditAlert('');
   };
 
+  if (mode === 'quick') {
+    return (
+      <QuickSale
+        data={data}
+        save={save}
+        rep={rep}
+        onLogout={onLogout}
+        onSwitchToDetailed={() => setMode('detailed')}
+        addAudit={addAudit}
+      />
+    );
+  }
+
   if (receipts) return (
     <><style>{STYLE}</style>
     <div className="page">
@@ -402,7 +418,10 @@ export default function RepApp({ data, save, rep, onLogout, addAudit }: RepAppPr
           <div className="topbar-logo">📝 Record Sale</div>
           <div className="topbar-sub">{rep.name} · {rep.warehouse ?? 'OWD'}{cart.length > 0 ? ` · 🛒 ${cart.length} in cart` : ''}</div>
         </div>
-        <button className="topbar-btn" onClick={onLogout}>Logout</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="topbar-btn" onClick={() => setMode('quick')}>⚡ Quick Sale</button>
+          <button className="topbar-btn" onClick={onLogout}>Logout</button>
+        </div>
       </div>
 
       <div className="content" style={{ paddingBottom: 24 }}>

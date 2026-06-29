@@ -105,6 +105,21 @@ export type RepAppProps = {
   addAudit: (currentData: StateData, action: string, detail: string, actor: string) => StateData;
 };
 
+export type QuickSaleProps = {
+  data: StateData;
+  save: (next: StateData) => Promise<void>;
+  rep: SalesRep;
+  onLogout: () => void;
+  onSwitchToDetailed: () => void;
+  addAudit: (currentData: StateData, action: string, detail: string, actor: string) => StateData;
+};
+
+export type OwnerQuickSaleProps = {
+  data: StateData;
+  save: (next: StateData) => Promise<void>;
+  addAudit: (currentData: StateData, action: string, detail: string, actor: string) => StateData;
+};
+
 export type OwnerAppProps = {
   data: StateData;
   save: (next: StateData) => Promise<void>;
