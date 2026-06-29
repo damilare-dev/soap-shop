@@ -84,7 +84,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-b);font-size:
 .qs-stepper-btn:active{transform:scale(.94);}
 .qs-stepper-btn:disabled{opacity:.35;cursor:not-allowed;}
 .qs-stepper-btn:focus-visible{outline:3px solid var(--gold);outline-offset:2px;}
-.qs-stepper-value{font-family:var(--font-m);font-size:28px;font-weight:700;min-width:80px;text-align:center;}
+.qs-stepper-input{font-family:var(--font-m);font-size:28px;font-weight:700;width:100px;text-align:center;border:1.5px solid var(--border);border-radius:10px;padding:8px 4px;background:var(--white);color:var(--text);}
+.qs-stepper-input:focus{outline:none;border-color:var(--green2);box-shadow:0 0 0 3px rgba(26,61,43,.1);}
+.qs-stepper-input::-webkit-outer-spin-button,.qs-stepper-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+.qs-stepper-input[type=number]{-moz-appearance:textfield;}
 .qs-modal-total{text-align:center;background:var(--green-light);border-radius:var(--radius-sm);padding:14px;margin-bottom:22px;}
 .qs-modal-total-label{font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600;letter-spacing:.06em;}
 .qs-modal-total-value{font-family:var(--font-m);font-size:24px;font-weight:700;color:var(--green2);margin-top:4px;}
@@ -100,10 +103,23 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-b);font-size:
  .card{padding:16px;}
  .qs-btn{min-height:84px;}
  .qs-stepper-btn{width:48px;height:48px;font-size:24px;}
+ .qs-stepper-input{width:84px;font-size:24px;}
 }
 `;
 
 const QTY_STEP = 0.5;
+
+// Mirrors the detailed sale flow's qty input: step 0.5, min 0.5, max = stock. Snaps to the
+// nearest half-box and falls back to the minimum on invalid/empty input so it never submits NaN/0.
+const clampQty = (n: number, stock: number): number => {
+  if (!isFinite(n) || n <= 0) return QTY_STEP;
+  const snapped = Math.round(n / QTY_STEP) * QTY_STEP;
+  if (snapped < QTY_STEP) return QTY_STEP;
+  if (snapped > stock) return stock;
+  return snapped;
+};
+
+const formatQty = (n: number): string => (n % 1 === 0 ? String(n) : n.toFixed(1));
 
 export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetailed, addAudit }: QuickSaleProps) {
   const [search, setSearch] = useState('');
@@ -112,6 +128,7 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
   const [blockedAlert, setBlockedAlert] = useState('');
   const [qtyPanelProduct, setQtyPanelProduct] = useState<Product | null>(null);
   const [qtyValue, setQtyValue] = useState(1);
+  const [qtyText, setQtyText] = useState('1');
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Read the live rep record so an owner-applied lock takes effect immediately, same as the detailed flow.
@@ -206,22 +223,38 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
 
   const openQtyPanel = (p: Product) => {
     setQtyPanelProduct(p);
-    setQtyValue(p.stock >= 1 ? 1 : p.stock);
+    const initial = p.stock >= 1 ? 1 : p.stock;
+    setQtyValue(initial);
+    setQtyText(formatQty(initial));
   };
 
   const stepQty = (delta: number) => {
     if (!qtyPanelProduct) return;
-    setQtyValue(v => {
-      const next = v + delta;
-      if (next < QTY_STEP) return QTY_STEP;
-      if (next > qtyPanelProduct.stock) return qtyPanelProduct.stock;
-      return next;
-    });
+    const next = clampQty(qtyValue + delta, qtyPanelProduct.stock);
+    setQtyValue(next);
+    setQtyText(formatQty(next));
+  };
+
+  const handleQtyTextChange = (text: string) => {
+    setQtyText(text);
+    if (!qtyPanelProduct) return;
+    const n = Number(text);
+    if (text.trim() === '' || !isFinite(n) || n <= 0) return;
+    const clamped = Math.min(n, qtyPanelProduct.stock);
+    setQtyValue(clamped < QTY_STEP ? QTY_STEP : clamped);
+  };
+
+  const handleQtyTextBlur = () => {
+    if (!qtyPanelProduct) return;
+    const finalQty = clampQty(Number(qtyText), qtyPanelProduct.stock);
+    setQtyValue(finalQty);
+    setQtyText(formatQty(finalQty));
   };
 
   const confirmQtySale = () => {
     if (!qtyPanelProduct) return;
-    recordSale(qtyPanelProduct, qtyValue);
+    const finalQty = clampQty(qtyValue, qtyPanelProduct.stock);
+    recordSale(qtyPanelProduct, finalQty);
     setQtyPanelProduct(null);
   };
 
@@ -373,7 +406,18 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
 
           <div className="qs-stepper">
             <button className="qs-stepper-btn" aria-label="Decrease quantity" disabled={qtyValue <= QTY_STEP} onClick={() => stepQty(-QTY_STEP)}>−</button>
-            <div className="qs-stepper-value">{qtyValue % 1 === 0 ? qtyValue : qtyValue.toFixed(1)}</div>
+            <input
+              className="qs-stepper-input"
+              type="number"
+              inputMode="decimal"
+              step={QTY_STEP}
+              min={QTY_STEP}
+              max={qtyPanelProduct.stock}
+              aria-label="Quantity"
+              value={qtyText}
+              onChange={e => handleQtyTextChange(e.target.value)}
+              onBlur={handleQtyTextBlur}
+            />
             <button className="qs-stepper-btn" aria-label="Increase quantity" disabled={qtyValue >= qtyPanelProduct.stock} onClick={() => stepQty(QTY_STEP)}>+</button>
           </div>
 
