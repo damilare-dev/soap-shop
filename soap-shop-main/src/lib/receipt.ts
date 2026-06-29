@@ -3,8 +3,10 @@ import { fmt } from "./utils";
 import { NAIRA_FONT_REGULAR_B64, NAIRA_FONT_BOLD_B64 } from "./receiptFont";
 
 // Editable shop header fields shown on every printed receipt.
-export const SHOP_NAME = "Unique Baby Care";
+export const SHOP_NAME = "Unique Standard Baby Care";
 export const SHOP_PHONE = "08035028475";
+export const SHOP_ADDRESS_HEAD = "Head Office: 80, Asubiaro Street, Odiolowo, Jaleyemi Area, Osogbo, Osun State.";
+export const SHOP_ADDRESS_BRANCH = "Branch Office: 1, Araromi Street, Owode Market, Owode-Ede, Osun State.";
 
 export type ReceiptItem = {
   productName: string;
@@ -35,7 +37,8 @@ function registerFonts(doc: jsPDF): void {
 function buildReceiptPdf(input: ReceiptInput): jsPDF {
   const { items, total, store, voided } = input;
   const width = 80;
-  const height = 58 + items.length * 10.5 + (store ? 5 : 0) + (voided ? 8 : 0);
+  // Extra 22mm over the base 58 accounts for the two address blocks (~4 lines at 8pt).
+  const height = 80 + items.length * 10.5 + (store ? 5 : 0) + (voided ? 8 : 0);
   // jsPDF enforces pageHeight >= pageWidth under the default "portrait" orientation,
   // silently swapping the two when width > height (true for most 1-2 item receipts,
   // since height grows with item count but width is fixed at 80mm). Without an explicit
@@ -57,6 +60,16 @@ function buildReceiptPdf(input: ReceiptInput): jsPDF {
   doc.text(SHOP_PHONE, width / 2, y, { align: "center" });
   y += 5;
 
+  doc.setFontSize(8);
+  const addrWidth = width - 2 * marginX;
+  const headLines = doc.splitTextToSize(SHOP_ADDRESS_HEAD, addrWidth);
+  doc.text(headLines, width / 2, y, { align: "center" });
+  y += headLines.length * 3.5 + 1.5;
+  const branchLines = doc.splitTextToSize(SHOP_ADDRESS_BRANCH, addrWidth);
+  doc.text(branchLines, width / 2, y, { align: "center" });
+  y += branchLines.length * 3.5 + 2;
+
+  doc.setFontSize(10);
   if (store) {
     doc.text(store, width / 2, y, { align: "center" });
     y += 5;
