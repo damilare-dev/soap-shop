@@ -6,7 +6,7 @@ import OwnerSales from './owner/OwnerSales';
 import OwnerReport from './owner/OwnerReport';
 import OwnerSettings from './owner/OwnerSettings';
 import OwnerAudit from './owner/OwnerAudit';
-import OwnerQuickSale from './OwnerQuickSale';
+import OwnerSell from './OwnerSell';
 
 const STYLE = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
@@ -118,7 +118,7 @@ export default function OwnerApp({ data, save, onLogout, addAudit }: OwnerAppPro
 
       <div className="content">
         {tab === "home" && <OwnerHome data={data} />}
-        {tab === "sell" && <OwnerQuickSale data={data} save={save} addAudit={addAudit} />}
+        {tab === "sell" && <OwnerSell data={data} save={save} addAudit={addAudit} />}
         {tab === "delivery" && <OwnerDelivery data={data} save={save} addAudit={addAudit} />}
         {tab === "sales" && <OwnerSales data={data} save={save} addAudit={addAudit} />}
         {tab === "report" && <OwnerReport data={data} />}

@@ -12,6 +12,13 @@ const printSaleReceipt = async (s: Sale) => {
   });
 };
 
+const printBatchReceipt = async (sales: Sale[]) => {
+  await generateReceipt({
+    items: sales.map(s => ({ productName: s.productName, qty: s.qty, unitPrice: s.cashCollected / s.qty, lineTotal: s.cashCollected })),
+    total: sales.reduce((sum, s) => sum + s.cashCollected, 0),
+  });
+};
+
 type CartItem = {
   id: string;
   product: Product;
@@ -102,7 +109,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-b);font-size:
 }
 `;
 
-export default function DetailedSale({ data, save, rep, onLogout, onSwitchToQuick, addAudit }: DetailedSaleProps) {
+export default function DetailedSale({ data, save, rep, onLogout, onChangeStore, addAudit }: DetailedSaleProps) {
   const [selected, setSelected] = useState<Product | null>(null);
   const [qty, setQty] = useState<string>('');
   const [cash, setCash] = useState<string>('');
@@ -351,9 +358,10 @@ export default function DetailedSale({ data, save, rep, onLogout, onSwitchToQuic
           </div>
         ))}
 
-        <button className="btn btn-green btn-full btn-lg" style={{ marginTop: 8 }} onClick={() => setReceipts(null)}>
-          Record More Sales
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button className="btn btn-ghost btn-lg" style={{ flex: 1 }} onClick={() => { void printBatchReceipt(receipts); }}>🧾 Receipt</button>
+          <button className="btn btn-green btn-lg" style={{ flex: 1 }} onClick={() => setReceipts(null)}>Record More Sales</button>
+        </div>
       </div>
     </div>
     </>
@@ -412,7 +420,7 @@ export default function DetailedSale({ data, save, rep, onLogout, onSwitchToQuic
           <div className="topbar-sub">{rep.name} · {rep.warehouse ?? 'OWD'}{cart.length > 0 ? ` · 🛒 ${cart.length} in cart` : ''}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="topbar-btn" onClick={onSwitchToQuick}>⚡ Quick Sale</button>
+          {onChangeStore && <button className="topbar-btn" onClick={onChangeStore}>🔄 Change Store</button>}
           <button className="topbar-btn" onClick={onLogout}>Logout</button>
         </div>
       </div>
