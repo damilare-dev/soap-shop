@@ -123,7 +123,7 @@ export async function generateReceipt(input: ReceiptInput): Promise<void> {
     try {
       const file = new File([doc.output("blob")], filename, { type: "application/pdf" });
       if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: SHOP_NAME, text: SHOP_NAME });
+        await navigator.share({ files: [file] });
         return;
       }
     } catch (err) {
