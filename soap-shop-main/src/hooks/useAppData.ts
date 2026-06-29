@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase, cloudEnabled } from '../lib/supabase';
 import { SalesRep, StateData } from '../types';
 import { applyOWDSeed } from '../lib/seedOWDProducts';
@@ -14,6 +15,7 @@ function ensureOwnerRep(state: StateData): StateData {
 }
 
 const STORAGE_KEY = 'soap-shop-local';
+const MIGRATED_KEY = 'soap-shop-cloud-migrated';
 
 function loadLocal(): StateData | null {
   try {
@@ -24,6 +26,76 @@ function loadLocal(): StateData | null {
 
 function saveLocal(data: StateData) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function hasMigrated(): boolean {
+  try { return localStorage.getItem(MIGRATED_KEY) === 'true'; } catch { return false; }
+}
+
+function markMigrated() {
+  try { localStorage.setItem(MIGRATED_KEY, 'true'); } catch { /* ignore */ }
+}
+
+function isEmptyState(s: StateData): boolean {
+  return !s.ownerPin && s.reps.length === 0 && s.products.length === 0
+    && s.deliveries.length === 0 && s.sales.length === 0 && s.auditLog.length === 0;
+}
+
+// First time a device sees a freshly-provisioned (empty) Supabase project while it still
+// holds real local-only history, push that history up instead of letting the empty cloud
+// state become "truth" and overwrite it. Runs at most once per device (MIGRATED_KEY).
+async function pushFullState(sb: SupabaseClient, state: StateData): Promise<boolean> {
+  const parents: PromiseLike<any>[] = [
+    sb.from('app_config').upsert({ key: 'max_discount_pct', value: String(state.maxDiscountPct) }),
+  ];
+  if (state.ownerPin) {
+    parents.push(sb.from('app_config').upsert({ key: 'owner_pin', value: state.ownerPin }));
+  }
+  if (state.reps.length) {
+    parents.push(sb.from('reps').upsert(state.reps.map(r => ({
+      id: r.id, name: r.name, pin_hash: r.pin, warehouse: r.warehouse ?? 'OWD', locked_date: r.lockedDate ?? null,
+    }))));
+  }
+  if (state.products.length) {
+    parents.push(sb.from('products').upsert(state.products.map(p => ({
+      id: p.id, name: p.name, schedule: p.schedule,
+      expected_qty: p.expectedQty, cost_price: p.costPrice,
+      sell_price: p.sellPrice, stock: p.stock,
+    }))));
+  }
+  const parentResults = await Promise.allSettled(parents);
+
+  // deliveries/sales FK-reference products & reps, so they must land after parents commit.
+  const children: PromiseLike<any>[] = [];
+  if (state.deliveries.length) {
+    children.push(sb.from('deliveries').upsert(state.deliveries.map(d => ({
+      id: d.id, product_id: d.productId, product_name: d.productName ?? '',
+      qty: d.qty, cost_per_box: d.costPerBox, date: d.date, supplier: d.supplier,
+    }))));
+  }
+  if (state.sales.length) {
+    children.push(sb.from('sales').upsert(state.sales.map(s => ({
+      id: s.id, product_id: s.productId, product_name: s.productName,
+      rep_id: s.repId, rep_name: s.repName, qty: s.qty,
+      price_per_box: s.pricePerBox, standard_price: s.standardPrice,
+      expected_cash: s.expectedCash, cash_collected: s.cashCollected,
+      discrepancy: s.discrepancy, note: s.note, date: s.date, time: s.time,
+      voided: s.voided, voided_by: s.voidedBy ?? null, voided_at: s.voidedAt ?? null,
+      edited: s.edited, negotiated: s.negotiated,
+      negotiated_price: s.negotiatedPrice ?? null,
+      negotiation_reason: s.negotiationReason ?? '',
+    }))));
+  }
+  if (state.auditLog.length) {
+    children.push(sb.from('audit_log').insert(state.auditLog.map(a => ({
+      id: a.id, ts: a.ts, action: a.action, detail: a.detail, actor: a.actor,
+    }))));
+  }
+  const childResults = await Promise.allSettled(children);
+
+  const allResults = [...parentResults, ...childResults];
+  allResults.forEach(r => { if (r.status === 'rejected') console.warn('Supabase migration push failed:', r.reason); });
+  return allResults.every(r => r.status === 'fulfilled');
 }
 
 const DEFAULT_STATE: StateData = {
@@ -98,14 +170,28 @@ export function useAppData() {
       setLoading(true);
       const remote = cloudEnabled ? await loadFromSupabase() : null;
       const local = loadLocal();
-      const base = remote ?? local ?? DEFAULT_STATE;
+
+      const migrating = Boolean(
+        supabase && remote && isEmptyState(remote) && local && !isEmptyState(local) && !hasMigrated()
+      );
+
+      const base = migrating ? local! : (remote ?? local ?? DEFAULT_STATE);
       const seeded = applyOWDSeed(base);
       const final = ensureOwnerRep(seeded);
       setData(final);
       dataRef.current = final;
       saveLocal(final);
       setLoading(false);
-      if (final !== base && supabase) {
+
+      if (!supabase) return;
+
+      if (migrating) {
+        const ok = await pushFullState(supabase, final);
+        if (ok) markMigrated();
+        return;
+      }
+
+      if (final !== base) {
         const ownerRepAdded = !base.reps.some(r => r.id === OWNER_REP_ID);
         await Promise.allSettled([
           supabase.from('products').upsert(
