@@ -36,7 +36,12 @@ function buildReceiptPdf(input: ReceiptInput): jsPDF {
   const { items, total, store, voided } = input;
   const width = 80;
   const height = 58 + items.length * 10.5 + (store ? 5 : 0) + (voided ? 8 : 0);
-  const doc = new jsPDF({ unit: "mm", format: [width, height] });
+  // jsPDF enforces pageHeight >= pageWidth under the default "portrait" orientation,
+  // silently swapping the two when width > height (true for most 1-2 item receipts,
+  // since height grows with item count but width is fixed at 80mm). Without an explicit
+  // orientation, all the width/height-based layout math below would then be positioning
+  // content against the wrong (swapped) page, clipping borders and right-aligned amounts.
+  const doc = new jsPDF({ unit: "mm", format: [width, height], orientation: width > height ? "landscape" : "portrait" });
   registerFonts(doc);
 
   const marginX = 6;
