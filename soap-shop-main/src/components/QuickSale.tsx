@@ -385,6 +385,33 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
           <div className="qs-total-value">{fmt(todayTotal)}</div>
         </div>
 
+        {sessionGroups.length > 0 && (() => {
+          const lastSaleId = recentSaleIds[recentSaleIds.length - 1];
+          const canUndoLast = lastSaleId !== undefined && canVoid(lastSaleId);
+          return (
+            <div className="card">
+              <div className="card-title">🧾 Just Recorded</div>
+              <div className="qs-void-hint">You can undo a sale within 2 minutes of recording it. After that, ask the owner to void it.</div>
+              {sessionGroups.map(g => {
+                const targetId = findRemovableSaleId(g.productId);
+                const canRemove = targetId !== undefined && canVoid(targetId);
+                return (
+                  <div key={g.productId} className="qs-session-row">
+                    <div>
+                      <div className="qs-session-name">{g.productName.replace(` (${repWarehouse})`, '')}</div>
+                      <div className="qs-session-qty">{g.qty} box{g.qty === 1 ? '' : 'es'}</div>
+                    </div>
+                    <button className="qs-minus" aria-label={`Remove one ${g.productName}`} onClick={() => removeOneFromGroup(g.productId)} disabled={!canRemove}>−</button>
+                  </div>
+                );
+              })}
+              <button className="btn btn-ghost btn-full" style={{ marginTop: 14 }} onClick={undoLastSale} disabled={!canUndoLast}>
+                ↺ Undo Last Sale
+              </button>
+            </div>
+          );
+        })()}
+
         <input
           className="finput"
           placeholder="Search soap…"
@@ -407,33 +434,6 @@ export default function QuickSale({ data, save, rep, onLogout, onSwitchToDetaile
           )}
           {azProducts.map(renderProductButton)}
         </div>
-
-        {sessionGroups.length > 0 && (() => {
-          const lastSaleId = recentSaleIds[recentSaleIds.length - 1];
-          const canUndoLast = lastSaleId !== undefined && canVoid(lastSaleId);
-          return (
-            <div className="card" style={{ marginTop: 16 }}>
-              <div className="card-title">🧾 Just Recorded</div>
-              <div className="qs-void-hint">You can undo a sale within 2 minutes of recording it. After that, ask the owner to void it.</div>
-              {sessionGroups.map(g => {
-                const targetId = findRemovableSaleId(g.productId);
-                const canRemove = targetId !== undefined && canVoid(targetId);
-                return (
-                  <div key={g.productId} className="qs-session-row">
-                    <div>
-                      <div className="qs-session-name">{g.productName.replace(` (${repWarehouse})`, '')}</div>
-                      <div className="qs-session-qty">{g.qty} box{g.qty === 1 ? '' : 'es'}</div>
-                    </div>
-                    <button className="qs-minus" aria-label={`Remove one ${g.productName}`} onClick={() => removeOneFromGroup(g.productId)} disabled={!canRemove}>−</button>
-                  </div>
-                );
-              })}
-              <button className="btn btn-ghost btn-full" style={{ marginTop: 14 }} onClick={undoLastSale} disabled={!canUndoLast}>
-                ↺ Undo Last Sale
-              </button>
-            </div>
-          );
-        })()}
       </div>
     </div>
 

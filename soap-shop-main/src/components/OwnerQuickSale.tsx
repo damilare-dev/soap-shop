@@ -354,6 +354,24 @@ export default function OwnerQuickSale({ data, save, addAudit }: OwnerQuickSaleP
         <div className="oqs-total-value">{fmt(todayTotal)}</div>
       </div>
 
+      {sessionGroups.length > 0 && (
+        <div className="card">
+          <div className="card-title">🧾 Just Recorded</div>
+          {sessionGroups.map(g => (
+            <div key={g.productId} className="oqs-session-row">
+              <div>
+                <div className="oqs-session-name">{g.productName.replace(` ${warehouseTag}`, '')}</div>
+                <div className="oqs-session-qty">{g.qty} box{g.qty === 1 ? '' : 'es'}</div>
+              </div>
+              <button className="oqs-minus" aria-label={`Remove one ${g.productName}`} onClick={() => removeOneFromGroup(g.productId)}>−</button>
+            </div>
+          ))}
+          <button className="btn btn-ghost btn-full" style={{ marginTop: 14 }} onClick={undoLastSale}>
+            ↺ Undo Last Sale
+          </button>
+        </div>
+      )}
+
       <input
         className="finput"
         placeholder="Search soap…"
@@ -377,24 +395,6 @@ export default function OwnerQuickSale({ data, save, addAudit }: OwnerQuickSaleP
         )}
         {azProducts.map(renderProductButton)}
       </div>
-
-      {sessionGroups.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-title">🧾 Just Recorded</div>
-          {sessionGroups.map(g => (
-            <div key={g.productId} className="oqs-session-row">
-              <div>
-                <div className="oqs-session-name">{g.productName.replace(` ${warehouseTag}`, '')}</div>
-                <div className="oqs-session-qty">{g.qty} box{g.qty === 1 ? '' : 'es'}</div>
-              </div>
-              <button className="oqs-minus" aria-label={`Remove one ${g.productName}`} onClick={() => removeOneFromGroup(g.productId)}>−</button>
-            </div>
-          ))}
-          <button className="btn btn-ghost btn-full" style={{ marginTop: 14 }} onClick={undoLastSale}>
-            ↺ Undo Last Sale
-          </button>
-        </div>
-      )}
 
       {qtyPanelProduct && (
         <div className="oqs-modal-backdrop" onClick={() => setQtyPanelProduct(null)}>
