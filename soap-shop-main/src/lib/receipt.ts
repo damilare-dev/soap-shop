@@ -37,8 +37,8 @@ function registerFonts(doc: jsPDF): void {
 function buildReceiptPdf(input: ReceiptInput): jsPDF {
   const { items, total, store, voided } = input;
   const width = 80;
-  // Extra 22mm over the base 58 accounts for the two address blocks (~4 lines at 8pt).
-  const height = 80 + items.length * 10.5 + (store ? 5 : 0) + (voided ? 8 : 0);
+  // Extra 26mm over the base 58 accounts for the two address blocks (~4 lines at 8pt) and "All sales are final." line.
+  const height = 84 + items.length * 10.5 + (store ? 5 : 0) + (voided ? 8 : 0);
   // jsPDF enforces pageHeight >= pageWidth under the default "portrait" orientation,
   // silently swapping the two when width > height (true for most 1-2 item receipts,
   // since height grows with item count but width is fixed at 80mm). Without an explicit
@@ -121,6 +121,8 @@ function buildReceiptPdf(input: ReceiptInput): jsPDF {
   doc.setFont("NairaSans", "normal");
   doc.setFontSize(8);
   doc.setTextColor(120, 120, 120);
+  doc.text("All sales are final.", width / 2, y, { align: "center" });
+  y += 4;
   doc.text("Thank you!", width / 2, y, { align: "center" });
 
   return doc;
