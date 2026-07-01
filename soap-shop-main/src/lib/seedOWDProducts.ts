@@ -114,6 +114,21 @@ export function applyOWDSeed(state: StateData): StateData {
 
   const now = new Date().toISOString();
 
+  // Guard: if no previous seed markers but seed products already exist by name, the audit marker
+  // was lost (e.g. the audit_log INSERT to Supabase failed). Recover the marker without touching
+  // the products — prevents re-seeding with new crypto.randomUUID() IDs that would create
+  // duplicate Supabase rows on every subsequent load.
+  if (!anyPreviousSeed) {
+    const productNames = new Set(state.products.map(p => p.name));
+    if (ALL_PRODUCTS.some(p => productNames.has(p.name))) {
+      const seedMarker: AuditEntry = {
+        id: crypto.randomUUID(), ts: now, action: SEED_FLAG,
+        detail: 'Seed marker recovered — products already present in state', actor: 'OWNER',
+      };
+      return { ...state, auditLog: [...state.auditLog, seedMarker] };
+    }
+  }
+
   if (anyPreviousSeed) {
     // Existing install — strip all old JLY products and replace with corrected ones.
     // OWD products stay untouched.

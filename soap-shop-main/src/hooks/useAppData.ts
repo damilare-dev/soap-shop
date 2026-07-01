@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase, cloudEnabled } from '../lib/supabase';
-import { SalesRep, StateData } from '../types';
+import { Product, SalesRep, StateData } from '../types';
 import { applyOWDSeed } from '../lib/seedOWDProducts';
 
 // Quick Sale records owner-made sales under a synthetic rep so sales.rep_id's FK to reps(id) is satisfied.
@@ -12,6 +12,27 @@ function ensureOwnerRep(state: StateData): StateData {
   if (state.reps.some(r => r.id === OWNER_REP_ID)) return state;
   const ownerRep: SalesRep = { id: OWNER_REP_ID, name: 'Owner', pin: '', warehouse: 'OWD' };
   return { ...state, reps: [...state.reps, ownerRep] };
+}
+
+// Removes products that share a name with another product (happens when the seed runs
+// more than once due to a lost audit-log marker). For each duplicate name, keep the entry
+// that is referenced by existing sales/deliveries — that is the real live product with
+// accurate stock; the duplicate has only seed-file stock values and no transaction history.
+function deduplicateProducts(state: StateData): StateData {
+  const referencedIds = new Set<string>([
+    ...state.sales.map(s => s.productId),
+    ...state.deliveries.map(d => d.productId),
+  ]);
+  const seen = new Map<string, Product>();
+  for (const p of state.products) {
+    const prior = seen.get(p.name);
+    if (!prior || (!referencedIds.has(prior.id) && referencedIds.has(p.id))) {
+      seen.set(p.name, p);
+    }
+  }
+  const unique = [...seen.values()];
+  if (unique.length === state.products.length) return state;
+  return { ...state, products: unique };
 }
 
 const STORAGE_KEY = 'soap-shop-local';
@@ -177,7 +198,8 @@ export function useAppData() {
 
       const base = migrating ? local! : (remote ?? local ?? DEFAULT_STATE);
       const seeded = applyOWDSeed(base);
-      const final = ensureOwnerRep(seeded);
+      const deduped = deduplicateProducts(seeded);
+      const final = ensureOwnerRep(deduped);
       setData(final);
       dataRef.current = final;
       saveLocal(final);
@@ -192,6 +214,20 @@ export function useAppData() {
       }
 
       if (final !== base) {
+        // Delete duplicate product rows that deduplication removed — only safe if no
+        // sales or deliveries reference them (those rows have only seed-file stock values).
+        const finalProductIds = new Set(final.products.map(p => p.id));
+        const referencedProductIds = new Set<string>([
+          ...base.sales.map(s => s.productId),
+          ...base.deliveries.map(d => d.productId),
+        ]);
+        const toDelete = base.products
+          .filter(p => !finalProductIds.has(p.id) && !referencedProductIds.has(p.id))
+          .map(p => p.id);
+        if (toDelete.length) {
+          await supabase.from('products').delete().in('id', toDelete);
+        }
+
         const ownerRepAdded = !base.reps.some(r => r.id === OWNER_REP_ID);
         await Promise.allSettled([
           supabase.from('products').upsert(
