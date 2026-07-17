@@ -63,7 +63,7 @@ export default function BudgetTracker() {
 
   /* ---- load ---- */
   useEffect(() => {
-    (async () => {
+    const load = async (isInitial) => {
       try {
         const res = await window.storage.get(STORAGE_KEY);
         if (res?.value) {
@@ -76,9 +76,18 @@ export default function BudgetTracker() {
       } catch (e) {
         // no saved data yet — start fresh
       } finally {
-        setLoading(false);
+        if (isInitial) setLoading(false);
       }
-    })();
+    };
+
+    load(true);
+
+    // Pick up changes made by the other person while this tab was in the background.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load(false);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
   /* ---- persist ---- */
