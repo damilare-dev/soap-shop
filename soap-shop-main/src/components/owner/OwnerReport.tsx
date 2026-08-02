@@ -76,20 +76,26 @@ export default function OwnerReport({ data }: OwnerReportProps) {
   const [invSearch, setInvSearch] = useState('');
   const detailItems = showInvDetail === 'OWD' ? owdInv.items : showInvDetail === 'JLY' ? jlyInv.items : showInvDetail === 'OTHER' ? otherInv.items : [];
 
-  // ---------- Sales price history — every completed sale in the selected month, any day (not just today) ----------
-  const [showPriceHistory, setShowPriceHistory] = useState(true);
-  const [priceDayFilter, setPriceDayFilter] = useState<string>('all');
-  const [pricePage, setPricePage] = useState(0);
-  const PRICE_PAGE_SIZE = 15;
+  // ---------- Daily sales totals by warehouse — one row per day in the selected month, most recent first ----------
+  const [dayPage, setDayPage] = useState(0);
+  const DAY_PAGE_SIZE = 10;
 
-  const daysWithSalesThisMonth = [...new Set(mSales.map(s => s.date))].sort((a, b) => b.localeCompare(a));
+  const dailyTotals = [...new Set(mSales.map(s => s.date))]
+    .sort((a, b) => b.localeCompare(a)) // most recent day first
+    .map(date => {
+      const daySales = mSales.filter(s => s.date === date);
+      const owdTotal = daySales
+        .filter(s => products.find(x => x.id === s.productId)?.name.includes('(OWD)'))
+        .reduce((s, t) => s + t.cashCollected, 0);
+      const jlyTotal = daySales
+        .filter(s => products.find(x => x.id === s.productId)?.name.includes('(JLY)'))
+        .reduce((s, t) => s + t.cashCollected, 0);
+      const dayTotal = daySales.reduce((s, t) => s + t.cashCollected, 0);
+      return { date, owdTotal, jlyTotal, dayTotal };
+    });
 
-  const priceRows = [...mSales]
-    .filter(s => priceDayFilter === 'all' || s.date === priceDayFilter)
-    .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
-
-  const pagedPriceRows = priceRows.slice(pricePage * PRICE_PAGE_SIZE, (pricePage + 1) * PRICE_PAGE_SIZE);
-  const priceTotalPages = Math.ceil(priceRows.length / PRICE_PAGE_SIZE);
+  const pagedDailyTotals = dailyTotals.slice(dayPage * DAY_PAGE_SIZE, (dayPage + 1) * DAY_PAGE_SIZE);
+  const dayTotalPages = Math.ceil(dailyTotals.length / DAY_PAGE_SIZE);
 
   return (
     <>
@@ -103,7 +109,7 @@ export default function OwnerReport({ data }: OwnerReportProps) {
             className="fselect"
             style={{ flex: 1, minWidth: 140 }}
             value={mKey}
-            onChange={e => setMKey(e.target.value)}
+            onChange={e => { setMKey(e.target.value); setDayPage(0); }}
           >
             {monthsWithSales.map(m => (
               <option key={m} value={m}>{m}{m === currentMonth ? ' (current)' : ''}</option>
@@ -149,8 +155,7 @@ export default function OwnerReport({ data }: OwnerReportProps) {
               <div style={{ fontWeight: 700, fontSize: 13, color, marginBottom: 10 }}>{label} {showInvDetail === tag ? '▲' : '▼'}</div>
               {[
                 ['In stock', stats.units.toLocaleString() + ' boxes'],
-                ['Cost value', fmt(stats.cost)],
-                ['Value if all sold', fmt(stats.potentialRevenue)],
+                ['Total cost', fmt(stats.cost)],
                 ['Profit if all sold', fmt(stats.potentialProfit)],
               ].map(([l, v]) => (
                 <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
@@ -254,55 +259,40 @@ export default function OwnerReport({ data }: OwnerReportProps) {
         })}
       </div>
 
-      {/* Sales Price History — every completed sale this month, broken out by day (not just today) */}
+      {/* Daily Sales Totals — one line per day, split by warehouse. Full per-sale detail lives in Sales/Audit. */}
       <div className="card">
-        <div className="card-title" style={{ cursor: 'pointer' }} onClick={() => setShowPriceHistory(!showPriceHistory)}>
-          🧾 Sales Price History {showPriceHistory ? '▲' : '▼'}
-        </div>
+        <div className="card-title">📅 Daily Sales Totals</div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-          Every completed sale in {mKey}{mKey === currentMonth ? ' (current month)' : ''} — pick a day to see just that day's prices, or view all.
+          Total cash collected each day in {mKey}{mKey === currentMonth ? ' (current month)' : ''}, by warehouse.
         </div>
 
-        {showPriceHistory && (
+        {dailyTotals.length === 0 && <div className="empty">No sales recorded this month.</div>}
+
+        {dailyTotals.length > 0 && (
           <>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-              <button
-                className={`btn btn-sm ${priceDayFilter === 'all' ? 'btn-green' : 'btn-ghost'}`}
-                onClick={() => { setPriceDayFilter('all'); setPricePage(0); }}
-              >
-                All days
-              </button>
-              {daysWithSalesThisMonth.map(d => (
-                <button
-                  key={d}
-                  className={`btn btn-sm ${priceDayFilter === d ? 'btn-green' : 'btn-ghost'}`}
-                  onClick={() => { setPriceDayFilter(d); setPricePage(0); }}
-                >
-                  {fmtD(d)}{d === today() ? ' (today)' : ''}
-                </button>
+            {/* Header row */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr 1fr', gap: 6, padding: '0 0 8px', borderBottom: '1.5px solid var(--border)' }}>
+              {['Date', 'OWD', 'JLY', 'Total'].map((h, i) => (
+                <div key={h} style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: i === 0 ? 'left' : 'right' }}>{h}</div>
               ))}
             </div>
 
-            {priceRows.length === 0 && <div className="empty">No completed sales for this period.</div>}
-
-            {pagedPriceRows.map(s => (
-              <div key={s.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-                <div className="row" style={{ marginBottom: 3 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{s.productName}</span>
-                  <span style={{ fontFamily: 'var(--font-m)', fontSize: 13 }}>{fmt(s.pricePerBox)}/box</span>
+            {pagedDailyTotals.map(d => (
+              <div key={d.date} style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr 1fr', gap: 6, padding: '10px 0', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                  {fmtD(d.date)}{d.date === today() ? <span style={{ color: 'var(--muted)', fontWeight: 400 }}> (today)</span> : ''}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  {fmtD(s.date)}{s.date === today() ? ' (today)' : ''} · {s.time} · {s.repName} · {s.qty} boxes · Total {fmt(s.cashCollected)}
-                  {s.negotiated && <span className="badge badge-blue" style={{ marginLeft: 6 }}>Negotiated</span>}
-                </div>
+                <div style={{ fontFamily: 'var(--font-m)', fontSize: 12, textAlign: 'right' }}>{fmt(d.owdTotal)}</div>
+                <div style={{ fontFamily: 'var(--font-m)', fontSize: 12, textAlign: 'right' }}>{fmt(d.jlyTotal)}</div>
+                <div style={{ fontFamily: 'var(--font-m)', fontSize: 12, fontWeight: 700, textAlign: 'right', color: 'var(--green2)' }}>{fmt(d.dayTotal)}</div>
               </div>
             ))}
 
-            {priceTotalPages > 1 && (
+            {dayTotalPages > 1 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, gap: 8 }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => setPricePage(p => Math.max(0, p - 1))} disabled={pricePage === 0}>← Prev</button>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Page {pricePage + 1} of {priceTotalPages}</span>
-                <button className="btn btn-ghost btn-sm" onClick={() => setPricePage(p => Math.min(priceTotalPages - 1, p + 1))} disabled={pricePage === priceTotalPages - 1}>Next →</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setDayPage(p => Math.max(0, p - 1))} disabled={dayPage === 0}>← Prev</button>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Page {dayPage + 1} of {dayTotalPages}</span>
+                <button className="btn btn-ghost btn-sm" onClick={() => setDayPage(p => Math.min(dayTotalPages - 1, p + 1))} disabled={dayPage === dayTotalPages - 1}>Next →</button>
               </div>
             )}
           </>
