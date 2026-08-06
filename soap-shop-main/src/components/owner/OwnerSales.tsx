@@ -1,5 +1,5 @@
 import { OwnerSalesProps, Sale } from '../../types';
-import { today, fmt } from '../../lib/utils';
+import { today, fmt, fmtD } from '../../lib/utils';
 import { generateReceipt } from '../../lib/receipt';
 import Alert from '../Alert';
 import { useState } from 'react';
@@ -19,6 +19,17 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
   const [voidConfirmId, setVoidConfirmId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
+
+  // ---------- Daily Cash Accountability — pick any day (not just today) to review Expected vs Collected ----------
+  const activeSalesAll = data.sales.filter(s => !s.voided);
+  const salesDatesAll = [...new Set(activeSalesAll.map(s => s.date))].sort((a, b) => b.localeCompare(a));
+  const cashDayOptions = salesDatesAll.includes(today()) ? salesDatesAll : [today(), ...salesDatesAll];
+  const [cashDay, setCashDay] = useState(today());
+
+  const cashDaySales = activeSalesAll.filter(s => s.date === cashDay);
+  const cashExpected = cashDaySales.reduce((s, t) => s + t.expectedCash, 0);
+  const cashCollected = cashDaySales.reduce((s, t) => s + t.cashCollected, 0);
+  const cashDiff = cashCollected - cashExpected;
 
   const cutoff = filter === "today" ? today()
     : filter === "week" ? new Date(Date.now() - 7*86400000).toISOString().split("T")[0]
@@ -65,6 +76,38 @@ export default function OwnerSales({ data, save, addAudit }: OwnerSalesProps) {
   return (
     <>
       <div className="section-title">Sales Log</div>
+
+      {/* Daily Cash Accountability — pick any day to review Expected vs Collected, for easy sign-off */}
+      <div className="card">
+        <div className="card-title">💰 Daily Cash Accountability</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase' }}>Day</span>
+          <select
+            className="fselect"
+            style={{ flex: 1, minWidth: 140 }}
+            value={cashDay}
+            onChange={e => setCashDay(e.target.value)}
+          >
+            {cashDayOptions.map(d => (
+              <option key={d} value={d}>{fmtD(d)}{d === today() ? ' (today)' : ''}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, textAlign: "center" }}>
+          {[["Expected", fmt(cashExpected), "var(--green2)"], ["Collected", fmt(cashCollected), "var(--text)"], ["Diff", fmt(cashDiff), cashDiff < 0 ? "var(--red)" : "var(--green)"]].map(([l, v, c]) => (
+            <div key={l}>
+              <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase" }}>{l}</div>
+              <div style={{ fontFamily: "var(--font-m)", fontSize: 14, color: c, fontWeight: 600, marginTop: 6 }}>{v}</div>
+            </div>
+          ))}
+        </div>
+        {cashDaySales.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12, textAlign: 'center' }}>No sales recorded on this day.</div>}
+        {cashDiff < -200 && cashDaySales.length > 0 && (
+          <div style={{ marginTop: 12, textAlign: 'center' }}>
+            <span className="badge badge-red">⚠ Short {fmt(Math.abs(cashDiff))}</span>
+          </div>
+        )}
+      </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
         {[["today","Today"],["week","Last 7 Days"],["month","This Month"]].map(([v,l]) => (
