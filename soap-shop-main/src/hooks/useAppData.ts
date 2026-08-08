@@ -133,6 +133,7 @@ export function useAppData() {
   const [data, setData] = useState<StateData>(DEFAULT_STATE);
   const [loading, setLoading] = useState(true);
   const dataRef = useRef<StateData>(DEFAULT_STATE);
+  const bootedRef = useRef(false);
 
   const loadFromSupabase = useCallback(async (): Promise<StateData | null> => {
     if (!supabase) return null;
@@ -186,6 +187,43 @@ export function useAppData() {
     }
   }, []);
 
+  // Folds a freshly-fetched server snapshot into local state. Sales, deliveries, and the
+  // audit log are append-only in this app (never deleted, only marked voided/edited), so
+  // any record that exists locally but hasn't shown up in this fetch yet is kept rather
+  // than dropped — that's what stops a sync from ever making a just-recorded sale vanish.
+  // Products/reps CAN be legitimately deleted (see deduplicateProducts), so those are
+  // trusted from the server as-is.
+  const mergeRemote = useCallback((remote: StateData): StateData => {
+    const current = dataRef.current;
+    const keepLocalOnly = <T extends { id: string }>(local: T[], remoteArr: T[]): T[] => {
+      const remoteIds = new Set(remoteArr.map(r => r.id));
+      const localOnly = local.filter(item => !remoteIds.has(item.id));
+      return localOnly.length ? [...remoteArr, ...localOnly] : remoteArr;
+    };
+    const merged: StateData = {
+      ownerPin: remote.ownerPin,
+      maxDiscountPct: remote.maxDiscountPct,
+      reps: remote.reps,
+      products: remote.products,
+      deliveries: keepLocalOnly(current.deliveries, remote.deliveries),
+      sales: keepLocalOnly(current.sales, remote.sales),
+      auditLog: keepLocalOnly(current.auditLog, remote.auditLog),
+    };
+    return ensureOwnerRep(deduplicateProducts(merged));
+  }, []);
+
+  // Pulls the latest from Supabase and merges it in. Called on realtime events from other
+  // devices, when this tab regains focus, and on a slow interval as a safety net.
+  const refresh = useCallback(async () => {
+    if (!supabase || !bootedRef.current) return;
+    const remote = await loadFromSupabase();
+    if (!remote) return;
+    const merged = mergeRemote(remote);
+    setData(merged);
+    dataRef.current = merged;
+    saveLocal(merged);
+  }, [loadFromSupabase, mergeRemote]);
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -204,6 +242,7 @@ export function useAppData() {
       dataRef.current = final;
       saveLocal(final);
       setLoading(false);
+      bootedRef.current = true;
 
       if (!supabase) return;
 
@@ -249,6 +288,47 @@ export function useAppData() {
       }
     })();
   }, [loadFromSupabase]);
+
+  // Keep every device in sync with what other devices have saved: instantly via Supabase
+  // Realtime when it's enabled on the tables, and as a fallback (in case it isn't, or a
+  // realtime message is missed) whenever this tab regains focus and on a slow interval.
+  useEffect(() => {
+    if (!supabase) return;
+    const sb = supabase; // narrow once so the cleanup closure below also sees it as non-null
+
+    let debounceId: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (debounceId) clearTimeout(debounceId);
+      debounceId = setTimeout(refresh, 600);
+    };
+
+    const channel = sb
+      .channel('soapstock-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reps' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_log' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' }, scheduleRefresh)
+      .subscribe();
+
+    const onFocus = () => { void refresh(); };
+    const onVisible = () => { if (document.visibilityState === 'visible') void refresh(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+
+    // Safety net if Realtime replication isn't enabled on the Supabase tables — still
+    // catches up within two minutes either way.
+    const pollId = setInterval(() => { void refresh(); }, 120000);
+
+    return () => {
+      if (debounceId) clearTimeout(debounceId);
+      sb.removeChannel(channel);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(pollId);
+    };
+  }, [refresh]);
 
   const save = useCallback(async (next: StateData) => {
     // 1. Update UI and localStorage immediately — user sees change instantly
